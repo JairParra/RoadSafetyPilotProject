@@ -1,0 +1,295 @@
+---
+header-includes:
+  - \usepackage{amsmath}
+  - \usepackage{amssymb}
+  - \usepackage{amsthm}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \fancyhead[CO,CE]{Hair Parra}
+  - \fancyfoot[CO,CE]{Notes by Hair Parra}
+  - \fancyfoot[LE,RO]{\thepage}
+title: "Road Safety Pilot Project - EDA"
+author: "Hair Albeiro Parra Barrera"
+geometry: margin=1.3cm
+always_allow_html: true
+output: 
+    pdf_document: 
+      extra_dependencies: ["array", "amsmath","booktabs"]
+---
+
+\newtheorem{assumption}{Assumption}[assumption]
+\newtheorem{theorem}{Theorem}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{example}{Example}
+\newtheorem{remark*}{Remark}
+\newtheorem{aside*}{Aside}
+\newtheorem{exercise*}{Exercise}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=9, fig.height=6) 
+
+# configurations for plot 
+my_plot_hook <- function(x, options)
+  paste("\n", knitr::hook_plot_tex(x, options), "\n")
+knitr::knit_hooks$set(plot = my_plot_hook)
+```
+
+## Libraries 
+
+```{r libraries, message=FALSE, warning=FALSE}
+# CRAN libraries
+library("sf") # temp
+library("here")
+library("tidyr")
+library("dplyr")
+library("tibble")
+library("readxl")
+library("corrplot")
+library("ggmap") # temp 
+library("ggplot2")
+library("data.table")
+
+# Custom scripts  
+source(here("functions", "clean_data.R"))
+```
+
+
+# Exploratory Data Analysis 
+
+## Data Cleaning 
+
+```{r}
+# Load data from the data_raw folder with UTF-8 encoding
+dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
+head(dat)
+```
+
+```{r}
+# load the Dicionnaire_final object similar to before
+varnames <- read_excel(here("data_raw","Dictionnaire_final.xlsx"))
+varnames <- setNames(as.list(varnames$DESCRIPTION), varnames$NOM)
+print(head(varnames))
+```
+
+```{r}
+# general datatypes of the object
+str(dat)
+```
+
+We can observe a number of irrelevant columns (e.g. `rue_1`, `rue_2`, `street_1`, `street_2`, `X`, `X.1`) that we will remove. Also, the borough names contains typos, so we will also correct those for later.
+
+## Preprocessing 
+
+The function `f_clean_data` performs some basic data processing including NA cleaning, removing irrelevant columns, cleaning the borough names and other basic transformations. 
+
+```{r}
+# perform data cleaning 
+dat <- f_clean_data(dat)
+```
+
+After cleaning, the following variables remain: 
+
+```{r}
+colnames(dat)
+```
+The names of the boroughs have also been corrected: 
+
+```{r}
+unique(dat$borough)
+```
+
+## Correlation Analysis 
+
+In order to determine whether the data is suitable for a regression analysis, we will perform a correlation analysis. 
+
+### Numerical Covariates
+
+```{r}
+# Selecting only non-categorical variables and excluding columns that start with 'ln_'
+numeric_dat <- dat %>% 
+               select_if(is.numeric) %>%
+               select(-starts_with("ln_"), -acc)
+
+# Compute the correlation matrix
+cor_matrix <- cor(numeric_dat, use = "complete.obs")
+
+# Convert the correlation matrix to a long format
+cor_data <- as.data.frame(as.table(cor_matrix))
+
+# Plotting the correlation matrix
+ggplot(cor_data, aes(x = Var1, y = Var2, fill = Freq)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(fill = "Correlation", x = "", y = "", title = "Correlation Matrix of Numerical Variables")
+```
+
+Since the correlation matrix is hard to understand, we look to focus our attention on the most 
+linearly correlated covariates with the target variable `acc`. For this, we use three correlation metrics: Pearson, Spearman and Kendall. In particular, we use as a sorting criterion the Spearman correlation metric, which is the most robust to outliers.
+
+```{r}
+# Function to compute different correlation measures
+compute_correlations <- function(data, target_var) {
+  # the outer function is a wrapper 
+  results <- sapply(data, function(x) {
+    c(pearson = cor(x, data[[target_var]], method = "pearson", use = "complete.obs"),
+      spearman = cor(x, data[[target_var]], method = "spearman", use = "complete.obs"),
+      kendall = cor(x, data[[target_var]], method = "kendall", use = "complete.obs"))
+  })
+  return(as.data.frame(t(results)))
+}
+
+# Compute correlations
+correlations_with_acc <- compute_correlations(dat %>% select_if(is.numeric) %>% select(-starts_with("ln_")), "acc")
+
+# Convert row names to a column
+correlations_with_acc <- correlations_with_acc %>% rownames_to_column(var = "variable")
+
+# Identifying the top 15 most positively and negatively correlated variables
+top_n = 15
+top_positively_correlated <- correlations_with_acc %>% 
+                             arrange(desc(spearman)) %>%
+                             head(top_n+1)
+
+top_negatively_correlated <- correlations_with_acc %>% 
+                             arrange(spearman) %>%
+                             head(top_n+1)
+
+# Filter out rows with negative correlation in positive correlated, and viceversa
+top_positively_correlated <- top_positively_correlated[top_positively_correlated$spearman > 0, ]
+top_negatively_correlated <- top_negatively_correlated[top_negatively_correlated$spearman < 0, ]
+
+# filter the target variable out of the correlations 
+top_positively_correlated <- top_positively_correlated[-1, ]
+top_negatively_correlated <- top_negatively_correlated[-1, ]
+
+# reset the index of both corr tables
+rownames(top_positively_correlated) <- seq(1, nrow(top_positively_correlated))
+rownames(top_negatively_correlated) <- seq(1, nrow(top_negatively_correlated))
+
+# Presenting the tables
+print(top_positively_correlated)
+print(top_negatively_correlated)
+```
+
+```{r}
+# Function to create a bar plot for the correlations
+create_correlation_bar_plot <- function(correlation_data, title, col) {
+  ggplot(correlation_data, aes(x = reorder(variable, spearman), y = spearman)) +
+    geom_bar(stat = "identity", aes(fill = spearman > 0)) +
+    coord_flip() +  # Flip the coordinates to make the plot horizontal
+    scale_fill_manual(values = c(col)) +  # Red for negative, blue for positive
+    labs(title = title, x = "", y = "Spearman Correlation") +
+    theme_minimal() +
+    theme(legend.position = "none")  # Remove the legend
+}
+
+# Creating the bar plots
+plot_positive_corr <- create_correlation_bar_plot(top_positively_correlated, "Top Positively Correlated Covariates with Accidents", "red")
+plot_negative_corr <- create_correlation_bar_plot(top_negatively_correlated, "Top Negatively Correlated Covariates Accidents", "blue")
+
+# Displaying the plots
+print(plot_positive_corr)
+print(plot_negative_corr)
+```
+
+
+
+## Visualizations 
+
+### Histogram of Pedestrian Flow (pi) 
+
+Distribution of the average annual daily pedestrian flow at the intersections.
+
+```{r}
+ggplot(dat, aes(x = pi)) +
+    geom_histogram(binwidth = 50, fill = "blue", color = "black") +
+    labs(title = "Histogram of Average Annual Daily Pedestrian Flow",
+         x = "Pedestrian Flow",
+         y = "Count of Intersections")
+
+```
+
+## Bar Chart of Accidents per Borough
+
+Which borough has the most accidents?
+
+```{r, fig.width=11, fig.height=8}
+# Calculate total accidents per borough
+borough_accidents <- dat %>%
+    group_by(borough) %>%
+    summarize(total_accidents = sum(acc, na.rm = TRUE)) %>%
+    arrange(desc(total_accidents))
+
+# Calculate the median and mean number of accidents
+median_accidents <- median(borough_accidents$total_accidents, na.rm = TRUE)
+mean_accidents <- mean(borough_accidents$total_accidents, na.rm = TRUE)
+
+# Bar Chart of Accidents by Borough using borough_accidents
+ggplot(borough_accidents, aes(x = reorder(borough, -total_accidents), y = total_accidents)) +
+    geom_bar(stat = "identity", aes(fill = total_accidents)) +
+    geom_hline(yintercept = median_accidents, color = "red", linetype = "dashed", linewidth = 1) +
+    geom_hline(yintercept = mean_accidents, color = "black", linetype = "dashed", linewidth = 1) +
+    annotate("text", x = nrow(borough_accidents), y = median_accidents, label = "Median", vjust = -1, color = "red") +
+    annotate("text", x = nrow(borough_accidents), y = mean_accidents, label = "Mean", vjust = -1, color = "black") +
+    scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Gradient of blues
+    ggtitle("Number of Accidents by Borough") +
+    xlab("Borough") +
+    ylab("Number of Accidents") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+          legend.position = "none")  # Remove legend and rotate labels
+
+```
+
+## Boxplot of Crosswalk Width (avg_crossw) by Presence of Median (median)
+
+How does the presence of a median affects the average crosswalk width at intersections?
+
+```{r}
+ggplot(dat, aes(x = as.factor(median), y = avg_crossw, fill = as.factor(median))) +
+    geom_boxplot() +
+    ggtitle("Crosswalk Width by Presence of Median") +
+    xlab("Presence of Median (0 = No, 1 = Yes)") +
+    ylab("Average Crosswalk Width")
+
+```
+
+
+
+# TESTS 
+
+```{r}
+# # handle Google API key 
+# api_key = "AIzaSyBr-VMCyZ8Y7z6kJp-hD_yRRPUOv34Qq3g" 
+# register_google(key = api_key)
+# 
+# # Create an sf object, replace 32618 with the correct EPSG code for your data
+# dat_sf <- st_as_sf(dat, coords = c("x", "y"), crs = 32618)
+# 
+# # Transform to geographic coordinates (latitude and longitude)
+# dat_sf_transformed <- st_transform(dat_sf, crs = 4326)
+# 
+# # Extract the transformed coordinates back into your data frame
+# dat_transformed <- as.data.frame(st_coordinates(dat_sf_transformed))
+# 
+# # Retrieve a map of Montreal
+# montreal_map <- get_map(location = "Montreal", zoom = 12)
+# 
+# # Plot the data on the map
+# ggmap(montreal_map) +
+#     geom_point(data = dat_transformed, aes(x = X, y = Y), color = "red", size = 1, alpha = 0.5) +
+#     ggtitle("Geographical Distribution of Intersections in Montreal") +
+#     xlab("Longitude") +
+#     ylab("Latitude")
+```
+
+
+
+
+
+
+
