@@ -54,7 +54,7 @@ f_clean_data <- function(df) {
   }
   
   # 1. Remove specified columns
-  df <- df[ , !(names(df) %in% c("x", "y", "rue_1", "rue_2", "street_1", "street_2", "X", "X.1"))]
+  df <- df[ , !(names(df) %in% c("street_1", "street_2", "X", "X.1"))]
   
   # 2. Convert 'borough' to a categorical variable and correct names
   df$borough <- as.factor(sapply(df$borough, correct_borough_name))

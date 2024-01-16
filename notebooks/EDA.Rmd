@@ -203,18 +203,11 @@ top_negatively_correlated <- top_negatively_correlated[-1, ]
 rownames(top_positively_correlated) <- seq(1, nrow(top_positively_correlated))
 rownames(top_negatively_correlated) <- seq(1, nrow(top_negatively_correlated))
 
-# Function to safely get the description from varnames_dict
-get_description <- function(variable, varnames_dict) {
-  if (is.null(varnames_dict[[variable]])) {
-    return(NA)
-  } else {
-    return(varnames_dict[[variable]])
-  }
-}
-
 # Add a column containing the description of the variables
-top_positively_correlated$description <- sapply(top_positively_correlated$variable, function(x) get_description(x, varnames_dict))
-top_negatively_correlated$description <- sapply(top_negatively_correlated$variable, function(x) get_description(x, varnames_dict))
+top_positively_correlated$description <- sapply(top_positively_correlated$variable, 
+                                                function(x) f_get_description(x, varnames_dict))
+top_negatively_correlated$description <- sapply(top_negatively_correlated$variable, 
+                                                function(x) f_get_description(x, varnames_dict))
 
 # Convert the description column to a character vector if it's not already
 top_positively_correlated$description <- as.character(top_positively_correlated$description)
@@ -264,6 +257,132 @@ ggplot(borough_accidents, aes(
     axis.text.x = element_text(angle = 45, hjust = 1), 
     legend.position = "none"  # Remove legend and rotate labels
   )
+
+```
+## Aggregated Number of Accidents Month by Month (misleading)
+
+```{r}
+# Convert the date column to Date type
+dat$date_plot <- dmy(dat$date_)
+dat_plt <- dat %>% filter(!is.na(date_plot))  # Exclude rows with NA in date_plot
+
+# Extract month part from the date (ignoring the year)
+dat_plt$month_only <- format(dat_plt$date_plot, "%m")
+
+# Calculate average accidents per month
+average_monthly_accidents <- dat_plt %>%
+  group_by(month_only) %>%
+  summarise(average_accidents = mean(acc, na.rm = TRUE)) %>%
+  arrange(month_only)
+
+# Bar Chart of Average Accidents by Month
+ggplot(average_monthly_accidents, aes(x = month_only, y = average_accidents)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  ggtitle("Estimated Average Number of Accidents by Month") +
+  xlab("Month") +
+  ylab("Average Number of Accidents") +
+  scale_x_discrete(labels = c('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+rm(dat_plt); gc(); # Remove temporary data frame and run garbage collector
+```
+
+## Top and Bottom 10 Intersections with Most Accidents
+
+```{r}
+# Calculate total accidents per intersection
+intersection_accidents <- dat %>%
+  group_by(int_no, rue_1, rue_2) %>%
+  summarise(total_accidents = sum(acc, na.rm = TRUE), .groups = 'drop') %>%
+  arrange(desc(total_accidents))
+
+# Top 20 intersections
+top_intersections <- head(intersection_accidents, 20)
+
+# Plotting the top 20 intersections
+ggplot(top_intersections, aes(x = reorder(paste(rue_1, rue_2), total_accidents), y = total_accidents)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  ggtitle("Top 20 Intersections with most accidents between ") +
+  xlab("Intersection") +
+  ylab("Number of Accidents") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip()  # Flip coordinates for horizontal layout
+```
+
+
+## Cumulative Number of Boroughs through time (drop?)
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(lubridate)
+
+# Convert the date column to Date type
+dat$date_plot <- dmy(dat$date_)
+
+# Arrange data by date
+dat <- dat %>%
+  arrange(date_plot)
+
+# Calculate the cumulative number of accidents
+dat$cumulative_acc <- cumsum(dat$acc)
+
+# Plotting the cumulative number of accidents over time
+ggplot(dat, aes(x = date_plot, y = cumulative_acc)) +
+  geom_line() +
+  labs(title = "Cumulative Number of Accidents Over Time",
+       x = "Date",
+       y = "Cumulative Accidents") +
+  theme_minimal()
+```
+```{r, fig.width=11, fig.height=8}
+# Calculate the cumulative number of accidents per borough
+borough_accidents <- dat %>%
+  group_by(borough, date_plot) %>%
+  summarise(daily_acc = sum(acc), .groups = 'drop') %>%
+  arrange(borough, date_plot) %>%
+  group_by(borough) %>%
+
+  mutate(cumulative_acc = cumsum(daily_acc))
+# Plotting time series for each borough
+ggplot(borough_accidents, aes(x = date_plot, y = cumulative_acc, color = borough)) +
+  geom_line() +
+  labs(title = "Cumulative Number of Accidents by Borough Over Time",
+       x = "Date",
+       y = "Cumulative Accidents",
+       color = "Borough") +
+  theme_minimal() +
+  theme(legend.position = "bottom") + 
+  guides(color = guide_legend(byrow = TRUE, ncol = 3))
+
+```
+```{r, fig.width=11, fig.height=12}
+# Calculate the cumulative number of accidents per borough
+borough_accidents <- dat %>%
+  group_by(borough, date_plot) %>%
+  summarise(daily_acc = sum(acc), .groups = 'drop') %>%
+  arrange(borough, date_plot) %>%
+  group_by(borough) %>%
+  mutate(cumulative_acc = cumsum(daily_acc))
+
+# Calculate the mean and median of cumulative accidents across boroughs for each date
+borough_stats <- borough_accidents %>%
+  group_by(date_plot) %>%
+  summarise(mean_cumulative_acc = mean(cumulative_acc), 
+            median_cumulative_acc = median(cumulative_acc))
+
+# Plotting time series for each borough, with mean and median lines
+ggplot() +
+  geom_line(data = borough_accidents, aes(x = date_plot, y = cumulative_acc, color = borough)) +
+  geom_line(data = borough_stats, aes(x = date_plot, y = mean_cumulative_acc), color = "black", linetype = "dashed") +
+  # geom_line(data = borough_stats, aes(x = date_plot, y = median_cumulative_acc), color = "grey", linetype = "dotted") +
+  labs(title = "Cumulative Number of Accidents by Borough Over Time",
+       x = "Date",
+       y = "Cumulative Accidents",
+       color = "Borough") +
+  theme_minimal() +
+  theme(legend.position = "bottom") +
+  guides(color = guide_legend(byrow = TRUE, ncol = 3))
 
 ```
 

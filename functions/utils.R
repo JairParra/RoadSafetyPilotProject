@@ -19,6 +19,15 @@ source(here("functions", "clean_data.R"))
 ### 1. Utility Functions ###
 ############################
 
+# Function to safely get the description from varnames_dict
+f_get_description <- function(variable, varnames_dict) {
+  if (is.null(varnames_dict[[variable]])) {
+    return(NA)
+  } else {
+    return(varnames_dict[[variable]])
+  }
+}
+
 # Function to compute different correlation measures
 f_compute_correlations <- function(df, target_var, filtered_num_vars = filtered_num_vars) {
   require("dplyr")
