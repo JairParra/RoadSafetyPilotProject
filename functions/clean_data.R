@@ -7,6 +7,10 @@
 ## @date: 2020-11-29
 ###############################################################################
 
+############################
+### 1. Utility Functions ###
+############################
+
 f_clean_data <- function(df) {
   
   # Correct names mapping
@@ -50,10 +54,37 @@ f_clean_data <- function(df) {
   }
   
   # 1. Remove specified columns
-  df <- df[ , !(names(df) %in% c("rue_1", "rue_2", "street_1", "street_2", "X", "X.1"))]
+  df <- df[ , !(names(df) %in% c("x", "y", "rue_1", "rue_2", "street_1", "street_2", "X", "X.1"))]
   
   # 2. Convert 'borough' to a categorical variable and correct names
   df$borough <- as.factor(sapply(df$borough, correct_borough_name))
+  
+  # 3. Convert binary and categorical variables to factors
+  categ_vars <- c("all_pedest", 
+                   "median", "green_stra", "half_phase", "any_ped_pr", 
+                   "ped_countd", "lt_protect", "lt_restric", "lt_prot_re",
+                   "any_exclus", "curb_exten", "all_red_an", "new_half_r")
+  for (var in categ_vars) {
+    df[[var]] <- as.factor(df[[var]])
+  }
+  
+  # `parking` needs to be treated separatedly 
+  df$parking <- as.factor(ifelse(df$parking == 0.0, 0, ifelse(df$parking == 0.5, 1, 2)))
+
+  
+  # 4. Convert ordinal variables to ordered factors (if any)
+  # Example: df$ordinal_var <- factor(df$ordinal_var, order = TRUE, levels = c("Low", "Medium", "High"))
+  
+  # 5. Ensure numerical variables are of type numeric
+  numeric_vars <- c("int_no", "fi", "fli", "fri", "fti", "cli",
+                    "cri", "cti", "acc", "ln_pi", "ln_fi", "ln_fli",
+                    "ln_fri", "ln_fti", "ln_cli", "ln_cri", "ln_cti",
+                    "tot_crossw", "number_of_", "avg_crossw", "tot_road_w", 
+                    "north_veh", "north_ped", "east_veh", "east_ped",
+                    "south_veh", "south_ped", "west_veh", "west_ped", 
+                    "total_lane", "of_exclusi", "commercial",
+                    "distdt", "ln_distdt", "traffic_10000", "ped_100")
+  df[numeric_vars] <- lapply(df[numeric_vars], as.numeric)
   
   # 3. Produce statistics on the number of NAs per column and print
   na_counts <- sapply(df, function(x) sum(is.na(x)))
@@ -68,3 +99,18 @@ f_clean_data <- function(df) {
   
   return(df)
 }
+
+
+# Function to standardize numerical variables
+f_standardize_data <- function(data, reverse = FALSE) {
+  if (reverse) {
+    # Reverse standardization
+    return(as.data.frame(
+      scale(data, center = FALSE, scale = 1))
+    ) 
+  } else {
+    # Standardize the data
+    return(as.data.frame(scale(data)))
+  }
+}
+

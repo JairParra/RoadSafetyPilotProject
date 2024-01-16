@@ -53,6 +53,7 @@ library("ggplot2")
 library("data.table")
 
 # Custom scripts  
+source(here("functions", "utils.R"))
 source(here("functions", "clean_data.R"))
 ```
 
@@ -67,39 +68,72 @@ dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
 head(dat)
 ```
 
+First, we extract some metadata. 
+
+```{r}
+# store the intersections id_no to rue_1 and rue_2 mapping
+inter_names <- subset(dat, select = c(int_no, x, y, rue_1, rue_2))
+inter_names
+```
+
 ```{r}
 # load the Dicionnaire_final object similar to before
 varnames <- read_excel(here("data_raw","Dictionnaire_final.xlsx"))
-varnames <- setNames(as.list(varnames$DESCRIPTION), varnames$NOM)
-print(head(varnames))
+varnames_dict <- setNames(as.list(varnames$DESCRIPTION), varnames$NOM)
+names(varnames_dict) <- gsub("[^[:alnum:]_]+", "", names(varnames_dict)) # ensure clean list names
+print(head(varnames_dict))
 ```
 
-```{r}
-# general datatypes of the object
-str(dat)
-```
-
-We can observe a number of irrelevant columns (e.g. `rue_1`, `rue_2`, `street_1`, `street_2`, `X`, `X.1`) that we will remove. Also, the borough names contains typos, so we will also correct those for later.
+- We can observe a number of irrelevant columns (e.g. `street_1`, `street_2`, `X`, `X.1`) that we will remove.
+- Also, the borough names contains typos, so we will also correct those to have consiten names.
+- We also observersome covariates are of the wrong type (e.g. categorical, numerical, etc.)
 
 ## Preprocessing 
 
-The function `f_clean_data` performs some basic data processing including NA cleaning, removing irrelevant columns, cleaning the borough names and other basic transformations. 
+The function `f_clean_data` performs some basic data processing including NA cleaning, removing irrelevant columns, cleaning the borough names and other basic transformations
 
 ```{r}
+# reload raw data 
+dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
+
 # perform data cleaning 
 dat <- f_clean_data(dat)
 ```
-
-After cleaning, the following variables remain: 
+The datatypes now are of the correct type for all variables: 
 
 ```{r}
-colnames(dat)
+str(dat)
 ```
+
+
 The names of the boroughs have also been corrected: 
 
 ```{r}
 unique(dat$borough)
 ```
+### Covariates lists 
+
+```{r}
+# list all categorical covarariates 
+categ_vars <- c("all_pedest", "median", "green_stra", "half_phase", "any_ped_pr", 
+                "ped_countd", "lt_protect", "lt_restric", "lt_prot_re",
+                "any_exclus", "parking", "curb_exten", "all_red_an", "new_half_r",
+                "borough")
+
+# list all numerical covariates 
+num_vars <- c("int_no", "fi", "fli", "fri", "fti", "cli",
+              "cri", "cti", "acc", "ln_pi", "ln_fi", "ln_fli",
+              "ln_fri", "ln_fti", "ln_cli", "ln_cri", "ln_cti",
+              "tot_crossw", "number_of_", "avg_crossw", "tot_road_w", 
+              "north_veh", "north_ped", "east_veh", "east_ped",
+              "south_veh", "south_ped", "west_veh", "west_ped", 
+              "total_lane", "of_exclusi", "commercial",
+              "distdt", "ln_distdt", "traffic_10000", "ped_100")
+
+# all covariates together 
+all_vars <- c(categ_vars, num_vars)
+```
+
 
 ## Correlation Analysis 
 
@@ -108,13 +142,22 @@ In order to determine whether the data is suitable for a regression analysis, we
 ### Numerical Covariates
 
 ```{r}
-# Selecting only non-categorical variables and excluding columns that start with 'ln_'
-numeric_dat <- dat %>% 
-               select_if(is.numeric) %>%
-               select(-starts_with("ln_"), -acc)
+# Filter out 'ln_' prefixed variables from num_vars and ensure 'acc' is included
+filtered_num_vars <- num_vars[!grepl("^ln_", num_vars) | num_vars == "acc"]
+
+# Selecting only the correct numerical variables including 'acc'
+numeric_dat <- dat %>%
+               select(all_of(filtered_num_vars))
+
+# Standardize the numerical data (becomes a matrix)
+std_num_dat <- f_standardize_data(numeric_dat)
+
+# Re-add the target variable 'acc' to the standardized data (matrix)
+std_num_dat <- cbind(std_num_dat, dat$acc)
+colnames(std_num_dat)[ncol(std_num_dat)] <- "acc"
 
 # Compute the correlation matrix
-cor_matrix <- cor(numeric_dat, use = "complete.obs")
+cor_matrix <- cor(std_num_dat, use = "complete.obs")
 
 # Convert the correlation matrix to a long format
 cor_data <- as.data.frame(as.table(cor_matrix))
@@ -132,19 +175,8 @@ Since the correlation matrix is hard to understand, we look to focus our attenti
 linearly correlated covariates with the target variable `acc`. For this, we use three correlation metrics: Pearson, Spearman and Kendall. In particular, we use as a sorting criterion the Spearman correlation metric, which is the most robust to outliers.
 
 ```{r}
-# Function to compute different correlation measures
-compute_correlations <- function(data, target_var) {
-  # the outer function is a wrapper 
-  results <- sapply(data, function(x) {
-    c(pearson = cor(x, data[[target_var]], method = "pearson", use = "complete.obs"),
-      spearman = cor(x, data[[target_var]], method = "spearman", use = "complete.obs"),
-      kendall = cor(x, data[[target_var]], method = "kendall", use = "complete.obs"))
-  })
-  return(as.data.frame(t(results)))
-}
-
 # Compute correlations
-correlations_with_acc <- compute_correlations(dat %>% select_if(is.numeric) %>% select(-starts_with("ln_")), "acc")
+correlations_with_acc <- f_compute_correlations(dat, "acc", filtered_num_vars)
 
 # Convert row names to a column
 correlations_with_acc <- correlations_with_acc %>% rownames_to_column(var = "variable")
@@ -159,7 +191,7 @@ top_negatively_correlated <- correlations_with_acc %>%
                              arrange(spearman) %>%
                              head(top_n+1)
 
-# Filter out rows with negative correlation in positive correlated, and viceversa
+# Filter out rows with negative correlation in positive correlated, and vice versa
 top_positively_correlated <- top_positively_correlated[top_positively_correlated$spearman > 0, ]
 top_negatively_correlated <- top_negatively_correlated[top_negatively_correlated$spearman < 0, ]
 
@@ -171,121 +203,70 @@ top_negatively_correlated <- top_negatively_correlated[-1, ]
 rownames(top_positively_correlated) <- seq(1, nrow(top_positively_correlated))
 rownames(top_negatively_correlated) <- seq(1, nrow(top_negatively_correlated))
 
+# Function to safely get the description from varnames_dict
+get_description <- function(variable, varnames_dict) {
+  if (is.null(varnames_dict[[variable]])) {
+    return(NA)
+  } else {
+    return(varnames_dict[[variable]])
+  }
+}
+
+# Add a column containing the description of the variables
+top_positively_correlated$description <- sapply(top_positively_correlated$variable, function(x) get_description(x, varnames_dict))
+top_negatively_correlated$description <- sapply(top_negatively_correlated$variable, function(x) get_description(x, varnames_dict))
+
+# Convert the description column to a character vector if it's not already
+top_positively_correlated$description <- as.character(top_positively_correlated$description)
+top_negatively_correlated$description <- as.character(top_negatively_correlated$description)
+
 # Presenting the tables
 print(top_positively_correlated)
 print(top_negatively_correlated)
 ```
 
-```{r}
-# Function to create a bar plot for the correlations
-create_correlation_bar_plot <- function(correlation_data, title, col) {
-  ggplot(correlation_data, aes(x = reorder(variable, spearman), y = spearman)) +
-    geom_bar(stat = "identity", aes(fill = spearman > 0)) +
-    coord_flip() +  # Flip the coordinates to make the plot horizontal
-    scale_fill_manual(values = c(col)) +  # Red for negative, blue for positive
-    labs(title = title, x = "", y = "Spearman Correlation") +
-    theme_minimal() +
-    theme(legend.position = "none")  # Remove the legend
-}
-
-# Creating the bar plots
-plot_positive_corr <- create_correlation_bar_plot(top_positively_correlated, "Top Positively Correlated Covariates with Accidents", "red")
-plot_negative_corr <- create_correlation_bar_plot(top_negatively_correlated, "Top Negatively Correlated Covariates Accidents", "blue")
-
-# Displaying the plots
-print(plot_positive_corr)
-print(plot_negative_corr)
-```
-
-
-
 ## Visualizations 
 
-### Histogram of Pedestrian Flow (pi) 
+Produce visualizations 
 
-Distribution of the average annual daily pedestrian flow at the intersections.
+## Distribution of Accidents per Borough
 
-```{r}
-ggplot(dat, aes(x = pi)) +
-    geom_histogram(binwidth = 50, fill = "blue", color = "black") +
-    labs(title = "Histogram of Average Annual Daily Pedestrian Flow",
-         x = "Pedestrian Flow",
-         y = "Count of Intersections")
-
-```
-
-## Bar Chart of Accidents per Borough
-
-Which borough has the most accidents?
+**Question:** Which borough has the most accidents?
 
 ```{r, fig.width=11, fig.height=8}
 # Calculate total accidents per borough
 borough_accidents <- dat %>%
-    group_by(borough) %>%
-    summarize(total_accidents = sum(acc, na.rm = TRUE)) %>%
-    arrange(desc(total_accidents))
+  group_by(borough) %>%
+  summarize(total_accidents = sum(acc, na.rm = TRUE)) %>%
+  arrange(desc(total_accidents))
 
 # Calculate the median and mean number of accidents
 median_accidents <- median(borough_accidents$total_accidents, na.rm = TRUE)
 mean_accidents <- mean(borough_accidents$total_accidents, na.rm = TRUE)
 
 # Bar Chart of Accidents by Borough using borough_accidents
-ggplot(borough_accidents, aes(x = reorder(borough, -total_accidents), y = total_accidents)) +
-    geom_bar(stat = "identity", aes(fill = total_accidents)) +
-    geom_hline(yintercept = median_accidents, color = "red", linetype = "dashed", linewidth = 1) +
-    geom_hline(yintercept = mean_accidents, color = "black", linetype = "dashed", linewidth = 1) +
-    annotate("text", x = nrow(borough_accidents), y = median_accidents, label = "Median", vjust = -1, color = "red") +
-    annotate("text", x = nrow(borough_accidents), y = mean_accidents, label = "Mean", vjust = -1, color = "black") +
-    scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Gradient of blues
-    ggtitle("Number of Accidents by Borough") +
-    xlab("Borough") +
-    ylab("Number of Accidents") +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1), 
-          legend.position = "none")  # Remove legend and rotate labels
+ggplot(borough_accidents, aes(
+    x = reorder(borough, -total_accidents),
+    y = total_accidents
+  )) +
+  geom_bar(stat = "identity", aes(fill = total_accidents)) +
+  geom_hline(yintercept = median_accidents, color = "red", linetype = "dashed", linewidth = 1) +
+  geom_hline(yintercept = mean_accidents, color = "black", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = nrow(borough_accidents), y = median_accidents, 
+           label = "Median", vjust = -1, color = "red") +
+  annotate("text", x = nrow(borough_accidents), y = mean_accidents, 
+           label = "Mean", vjust = -1, color = "black") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Gradient of blues
+  ggtitle("Number of Accidents by Borough") +
+  xlab("Borough") +
+  ylab("Number of Accidents") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    legend.position = "none"  # Remove legend and rotate labels
+  )
 
 ```
 
-## Boxplot of Crosswalk Width (avg_crossw) by Presence of Median (median)
-
-How does the presence of a median affects the average crosswalk width at intersections?
-
-```{r}
-ggplot(dat, aes(x = as.factor(median), y = avg_crossw, fill = as.factor(median))) +
-    geom_boxplot() +
-    ggtitle("Crosswalk Width by Presence of Median") +
-    xlab("Presence of Median (0 = No, 1 = Yes)") +
-    ylab("Average Crosswalk Width")
-
-```
-
-
-
-# TESTS 
-
-```{r}
-# # handle Google API key 
-# api_key = "AIzaSyBr-VMCyZ8Y7z6kJp-hD_yRRPUOv34Qq3g" 
-# register_google(key = api_key)
-# 
-# # Create an sf object, replace 32618 with the correct EPSG code for your data
-# dat_sf <- st_as_sf(dat, coords = c("x", "y"), crs = 32618)
-# 
-# # Transform to geographic coordinates (latitude and longitude)
-# dat_sf_transformed <- st_transform(dat_sf, crs = 4326)
-# 
-# # Extract the transformed coordinates back into your data frame
-# dat_transformed <- as.data.frame(st_coordinates(dat_sf_transformed))
-# 
-# # Retrieve a map of Montreal
-# montreal_map <- get_map(location = "Montreal", zoom = 12)
-# 
-# # Plot the data on the map
-# ggmap(montreal_map) +
-#     geom_point(data = dat_transformed, aes(x = X, y = Y), color = "red", size = 1, alpha = 0.5) +
-#     ggtitle("Geographical Distribution of Intersections in Montreal") +
-#     xlab("Longitude") +
-#     ylab("Latitude")
-```
 
 
 
