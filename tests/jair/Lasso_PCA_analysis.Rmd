@@ -1,0 +1,168 @@
+---
+header-includes:
+  - \usepackage{amsmath}
+  - \usepackage{amssymb}
+  - \usepackage{amsthm}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \fancyhead[CO,CE]{Hair Parra}
+  - \fancyfoot[CO,CE]{Notes by Hair Parra}
+  - \fancyfoot[LE,RO]{\thepage}
+title: "Road Safety Pilot Project - EDA"
+author: "Hair Albeiro Parra Barrera"
+geometry: margin=1.3cm
+always_allow_html: true
+output: 
+    pdf_document: 
+      extra_dependencies: ["array", "amsmath","booktabs"]
+---
+
+\newtheorem{assumption}{Assumption}[assumption]
+\newtheorem{theorem}{Theorem}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{example}{Example}
+\newtheorem{remark*}{Remark}
+\newtheorem{aside*}{Aside}
+\newtheorem{exercise*}{Exercise}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=9, fig.height=6) 
+
+# configurations for plot 
+my_plot_hook <- function(x, options)
+  paste("\n", knitr::hook_plot_tex(x, options), "\n")
+knitr::knit_hooks$set(plot = my_plot_hook)
+```
+
+
+## Libraries 
+
+```{r libraries, message=FALSE, warning=FALSE}
+# CRAN libraries
+library("sf") # temp
+library("here")
+library("tidyr")
+library("dplyr")
+library("tibble")
+library("readxl")
+library("corrplot")
+library("ggmap") # temp 
+library("ggplot2")
+library("elasticnet")
+library("data.table")
+
+# Custom scripts  
+source(here("functions", "utils.R"))
+source(here("functions", "clean_data.R"))
+source(here("functions", "install_packages.R"))
+
+# load packages if necessary 
+# f_load_packages()
+```
+
+
+# Data Preprocessing 
+
+```{r}
+# Load data from the data_raw folder with UTF-8 encoding
+dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
+
+# perform data cleaning 
+dat <- f_clean_data(dat)
+head(dat)
+```
+
+### List of covariates 
+
+```{r}
+# list all categorical covarariates 
+categ_vars <- c("all_pedest", "median", "green_stra", "half_phase", "any_ped_pr", 
+                "ped_countd", "lt_protect", "lt_restric", "lt_prot_re",
+                "any_exclus", "parking", "curb_exten", "all_red_an", "new_half_r",
+                "borough")
+
+# list all numerical covariates 
+num_vars <- c("fi", "fli", "fri", "fti", "cli",
+              "cri", "cti", "acc", "ln_pi", "ln_fi", "ln_fli",
+              "ln_fri", "ln_fti", "ln_cli", "ln_cri", "ln_cti",
+              "tot_crossw", "number_of_", "avg_crossw", "tot_road_w", 
+              "north_veh", "north_ped", "east_veh", "east_ped",
+              "south_veh", "south_ped", "west_veh", "west_ped", 
+              "total_lane", "of_exclusi", "commercial",
+              "distdt", "ln_distdt", "traffic_10000", "ped_100")
+
+# all covariates together 
+all_vars <- c(categ_vars, num_vars)
+
+# verify correct which variables were taken out 
+length(all_vars)
+ncol(dat)
+setdiff(colnames(dat), all_vars)
+```
+
+```{r}
+str(dat)
+```
+
+
+# Lasso PCA 
+
+
+```{r}
+# Function to standardize numerical variables
+# 
+# Args:
+#   data: A data frame.
+#   reverse: If TRUE, reverses the standardization. Defaults to FALSE.
+#   auto: If TRUE, automatically standardizes all numeric columns. Defaults to FALSE.
+#   cols: A vector of column names to standardize. Defaults to NULL.
+#
+# Returns:
+#   A data frame with standardized columns.
+f_standardize_data <- function(data, reverse = FALSE, auto = FALSE, cols = NULL) {
+  if (reverse) {
+    if (is.null(cols)) {
+      stop("Please specify the columns to reverse standardize.")
+    }
+    # Reverse standardization for specified columns
+    data %>% 
+      mutate_at(vars(all_of(cols)), ~ . / attr(., "scaled:scale"))
+  } else {
+    if (auto) {
+      # Standardize all numeric columns
+      data %>% 
+        mutate_if(is.numeric, scale)
+    } else {
+      if (is.null(cols)) {
+        stop("Please specify the columns to standardize or set auto = TRUE.")
+      }
+      # Standardize specified columns
+      data %>% 
+        mutate_at(vars(all_of(cols)), scale)
+    }
+  }
+}
+
+```
+
+
+```{r}
+# standarize the data 
+dat_std <- f_standardize_data(dat, cols=num_vars)
+dat_std 
+```
+
+
+
+
+
+
+
+
+
+
+
+

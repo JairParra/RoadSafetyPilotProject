@@ -102,15 +102,37 @@ f_clean_data <- function(df) {
 
 
 # Function to standardize numerical variables
-f_standardize_data <- function(data, reverse = FALSE) {
+# 
+# Args:
+#   data: A data frame.
+#   reverse: If TRUE, reverses the standardization. Defaults to FALSE.
+#   auto: If TRUE, automatically standardizes all numeric columns. Defaults to FALSE.
+#   cols: A vector of column names to standardize. Defaults to NULL.
+#
+# Returns:
+#   A data frame with standardized columns.
+f_standardize_data <- function(data, reverse = FALSE, auto = FALSE, cols = NULL) {
   if (reverse) {
-    # Reverse standardization
-    return(as.data.frame(
-      scale(data, center = FALSE, scale = 1))
-    ) 
+    if (is.null(cols)) {
+      stop("Please specify the columns to reverse standardize.")
+    }
+    # Reverse standardization for specified columns
+    data %>% 
+      mutate_at(vars(all_of(cols)), ~ . / attr(., "scaled:scale"))
   } else {
-    # Standardize the data
-    return(as.data.frame(scale(data)))
+    if (auto) {
+      # Standardize all numeric columns
+      data %>% 
+        mutate_if(is.numeric, scale)
+    } else {
+      if (is.null(cols)) {
+        stop("Please specify the columns to standardize or set auto = TRUE.")
+      }
+      # Standardize specified columns
+      data %>% 
+        mutate_at(vars(all_of(cols)), scale)
+    }
   }
 }
+
 

@@ -28,6 +28,7 @@ f_load_packages <- function() {
     "sqldf", 
     "car", 
     "glmnet",
+    "lubridate", 
     "elasticnet", 
     "factoextra"
   )

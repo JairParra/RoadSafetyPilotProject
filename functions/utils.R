@@ -37,7 +37,7 @@ f_compute_correlations <- function(df, target_var, filtered_num_vars = filtered_
     select(all_of(filtered_num_vars))
   
   # Standardize the numerical data
-  std_dat <- f_standardize_data(numeric_dat)
+  std_dat <- f_standardize_data(numeric_dat, auto=TRUE)
   
   # Convert the target variable to a matrix with the same number of rows
   target <- matrix(df[[target_var]], nrow = nrow(std_dat), ncol = 1)

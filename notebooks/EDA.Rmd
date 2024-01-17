@@ -48,6 +48,7 @@ library("dplyr")
 library("tibble")
 library("readxl")
 library("corrplot")
+library("lubridate")
 library("ggmap") # temp 
 library("ggplot2")
 library("data.table")
@@ -55,6 +56,10 @@ library("data.table")
 # Custom scripts  
 source(here("functions", "utils.R"))
 source(here("functions", "clean_data.R"))
+source(here("functions", "install_packages.R"))
+
+# load packages if necessary 
+f_load_packages()
 ```
 
 
@@ -121,7 +126,7 @@ categ_vars <- c("all_pedest", "median", "green_stra", "half_phase", "any_ped_pr"
                 "borough")
 
 # list all numerical covariates 
-num_vars <- c("int_no", "fi", "fli", "fri", "fti", "cli",
+num_vars <- c("fi", "fli", "fri", "fti", "cli",
               "cri", "cti", "acc", "ln_pi", "ln_fi", "ln_fli",
               "ln_fri", "ln_fti", "ln_cli", "ln_cri", "ln_cti",
               "tot_crossw", "number_of_", "avg_crossw", "tot_road_w", 
@@ -150,14 +155,14 @@ numeric_dat <- dat %>%
                select(all_of(filtered_num_vars))
 
 # Standardize the numerical data (becomes a matrix)
-std_num_dat <- f_standardize_data(numeric_dat)
+std_num_dat <- f_standardize_data(numeric_dat, auto=TRUE)
 
 # Re-add the target variable 'acc' to the standardized data (matrix)
 std_num_dat <- cbind(std_num_dat, dat$acc)
 colnames(std_num_dat)[ncol(std_num_dat)] <- "acc"
 
 # Compute the correlation matrix
-cor_matrix <- cor(std_num_dat, use = "complete.obs")
+cor_matrix <- cor(std_num_dat, use = "complete.obs", method="spearman")
 
 # Convert the correlation matrix to a long format
 cor_data <- as.data.frame(as.table(cor_matrix))
@@ -259,6 +264,7 @@ ggplot(borough_accidents, aes(
   )
 
 ```
+
 ## Aggregated Number of Accidents Month by Month (misleading)
 
 ```{r}
@@ -275,16 +281,21 @@ average_monthly_accidents <- dat_plt %>%
   summarise(average_accidents = mean(acc, na.rm = TRUE)) %>%
   arrange(month_only)
 
-# Bar Chart of Average Accidents by Month
-ggplot(average_monthly_accidents, aes(x = month_only, y = average_accidents)) +
-  geom_bar(stat = "identity", fill = "blue") +
+# Create a gradient of blues
+blue_gradient <- scale_fill_gradient(low = "lightblue", high = "darkblue")
+
+# Bar Chart of Average Accidents by Month with gradient fill
+ggplot(average_monthly_accidents, aes(x = month_only, y = average_accidents, fill = average_accidents)) +
+  geom_bar(stat = "identity") +
   ggtitle("Estimated Average Number of Accidents by Month") +
   xlab("Month") +
   ylab("Average Number of Accidents") +
   scale_x_discrete(labels = c('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  blue_gradient
 
 rm(dat_plt); gc(); # Remove temporary data frame and run garbage collector
+
 ```
 
 ## Top and Bottom 10 Intersections with Most Accidents
@@ -296,16 +307,21 @@ intersection_accidents <- dat %>%
   summarise(total_accidents = sum(acc, na.rm = TRUE), .groups = 'drop') %>%
   arrange(desc(total_accidents))
 
-# Top 20 intersections
-top_intersections <- head(intersection_accidents, 20)
+# Create a factor variable for accident ranges
+top_intersections$accident_range <- cut(top_intersections$total_accidents,
+                                        breaks = quantile(top_intersections$total_accidents, 
+                                                          probs = seq(0, 1, length.out = 5), na.rm = TRUE),
+                                        include.lowest = TRUE, labels = FALSE)
 
-# Plotting the top 20 intersections
-ggplot(top_intersections, aes(x = reorder(paste(rue_1, rue_2), total_accidents), y = total_accidents)) +
-  geom_bar(stat = "identity", fill = "blue") +
-  ggtitle("Top 20 Intersections with most accidents between ") +
+# Plotting the top 20 intersections with gradient fill
+ggplot(top_intersections, aes(x = reorder(paste(rue_1, rue_2), total_accidents), y = total_accidents, fill = factor(accident_range))) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(palette = "Blues", direction = 1) +
+  ggtitle("Top 20 Intersections with Most Accidents") +
   xlab("Intersection") +
   ylab("Number of Accidents") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") +  # Remove the legend
   coord_flip()  # Flip coordinates for horizontal layout
 ```
 
