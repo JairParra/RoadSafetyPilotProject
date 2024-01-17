@@ -46,10 +46,12 @@ library("sf") # temp
 library("here")
 library("tidyr")
 library("dplyr")
+library("haven")
 library("tibble")
 library("readxl")
 library("corrplot")
 library("ggmap") # temp 
+library("randomForest")
 library("ggplot2")
 library("elasticnet")
 library("data.table")
@@ -106,54 +108,115 @@ setdiff(colnames(dat), all_vars)
 ```{r}
 str(dat)
 ```
-
-
-# Lasso PCA 
-
-
 ```{r}
-# Function to standardize numerical variables
-# 
-# Args:
-#   data: A data frame.
-#   reverse: If TRUE, reverses the standardization. Defaults to FALSE.
-#   auto: If TRUE, automatically standardizes all numeric columns. Defaults to FALSE.
-#   cols: A vector of column names to standardize. Defaults to NULL.
-#
-# Returns:
-#   A data frame with standardized columns.
-f_standardize_data <- function(data, reverse = FALSE, auto = FALSE, cols = NULL) {
-  if (reverse) {
-    if (is.null(cols)) {
-      stop("Please specify the columns to reverse standardize.")
-    }
-    # Reverse standardization for specified columns
-    data %>% 
-      mutate_at(vars(all_of(cols)), ~ . / attr(., "scaled:scale"))
-  } else {
-    if (auto) {
-      # Standardize all numeric columns
-      data %>% 
-        mutate_if(is.numeric, scale)
-    } else {
-      if (is.null(cols)) {
-        stop("Please specify the columns to standardize or set auto = TRUE.")
-      }
-      # Standardize specified columns
-      data %>% 
-        mutate_at(vars(all_of(cols)), scale)
-    }
-  }
-}
-
+# load the Dicionnaire_final object similar to before
+varnames <- read_excel(here("data_raw","Dictionnaire_final.xlsx"))
+varnames_dict <- setNames(as.list(varnames$DESCRIPTION), varnames$NOM)
+names(varnames_dict) <- gsub("[^[:alnum:]_]+", "", names(varnames_dict)) # ensure clean list names
 ```
 
 
+# Lasso PCA Factor Analysis
+
+In order to perform regularized Lasso, we first need to standarized the data.
+
 ```{r}
-# standarize the data 
+# standarize the numeric columns of the data
 dat_std <- f_standardize_data(dat, cols=num_vars)
 dat_std 
 ```
+
+## Ordinary PCA
+
+```{r}
+# subset only the numerical covariates 
+datpca <- dat_std[, num_vars]
+
+# Perform PCA on the standardized data 'datpca'
+pca <- prcomp(datpca)
+
+# Get and print the eigenvalues, variance percentages, and cumulative variance percentages
+get_eig(pca)
+```
+
+```{r}
+# Visualize the eigenvalues using a scree plot
+fviz_eig(pca)
+```
+We could use up to the 6th component, explaining around 72% of the variance. 
+
+
+## Lasso PCA
+
+```{r}
+# num of factors to use 
+K = 6 
+
+# Perform Sparse PCA on the standardized data 'datpca'
+spcafit=spca(datpca,
+             K=K, # number of components
+             sparse="penalty", # penalty method
+             para=rep(48,K)) # values of lambda for each component
+
+spcafit
+```
+
+# Random Forest Importance 
+
+$$
+\text{%IncMSE}(X_i) = \frac{1}{N} \sum_{t=1}^{N} \left( \text{MSE}_{\text{perturbed}, t} - \text{MSE}_{\text{original}, t} \right)
+$$
+
+```{r}
+# Load the necessary library
+library(randomForest)
+
+# Ensure that 'dat' contains only the variables in 'all_vars' plus the target variable 'acc'
+predictors <- all_vars[all_vars != "acc"]
+dat_rf <- dat[c("acc", predictors)]
+
+# Train the random forest model
+set.seed(123)  # for reproducibility
+rf_model <- randomForest(acc ~ ., data = dat_rf, importance = TRUE)
+
+# Extract variable importance
+importance_rf <- importance(rf_model)
+
+# Create a data frame of variables and their importance
+variable_importance <- data.frame(Variable = rownames(importance_rf), 
+                                  Importance = importance[, "%IncMSE"])
+variable_importance <- variable_importance[order(variable_importance$Importance, 
+                                                 decreasing = TRUE), ]
+variable_importance$description <- sapply(variable_importance$Variable, 
+                                                function(x) f_get_description(x, varnames_dict))
+rownames(variable_importance) <- NULL
+
+# Print the sorted variable importance
+print(variable_importance)
+```
+
+
+```{r}
+# Select top 20 most important features
+top_20_features <- head(variable_importance, 20)
+
+# Create a horizontal barplot of the 20 most important features
+ggplot(top_20_features, aes(x = reorder(Variable, Importance), y = Importance, fill = Importance)) +
+  geom_bar(stat = "identity") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Apply blue gradient
+  coord_flip() +  # Make it horizontal
+  labs(title = "Top 20 Most Important Features in Random Forest Model (by %IncMSE)",
+       x = "Feature",
+       y = "Importance (%IncMSE)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")  # Adjust x-axis text
+
+```
+
+
+
+
 
 
 

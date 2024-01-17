@@ -20,6 +20,7 @@ f_load_packages <- function() {
     "here", 
     "tidyr", 
     "dplyr", 
+    "haven",
     "tibble", 
     "readxl", 
     "corrplot", 
@@ -30,7 +31,8 @@ f_load_packages <- function() {
     "glmnet",
     "lubridate", 
     "elasticnet", 
-    "factoextra"
+    "factoextra", 
+    "randomForest"
   )
   
   for (package in proj_packages) {
