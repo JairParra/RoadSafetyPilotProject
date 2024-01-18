@@ -1,8 +1,23 @@
 ---
-output:
-  pdf_document: default
-  html_document: default
+header-includes:
+  - \usepackage{amsmath}
+  - \usepackage{amssymb}
+  - \usepackage{amsthm}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \fancyhead[CO,CE]{Hair Parra}
+  - \fancyfoot[CO,CE]{Notes by Hair Parra}
+  - \fancyfoot[LE,RO]{\thepage}
+title: "Road Safety Pilot Project"
+author: "Hair Parra, Charles Julien"
+geometry: margin=1.3cm
+always_allow_html: true
+output: 
+    pdf_document: 
+      extra_dependencies: ["array", "amsmath","booktabs"]
 ---
+
+
 ## Introduction
 
 "The objective of your mandate is to provide the city with a ranking of the 1864 intersections in terms of safety (from the most dangerous to the least dangerous), so that it can prioritize the riskiest intersections with the aim of improving infrastructure."
@@ -35,7 +50,13 @@ $$
 As the variance of accidents is irreducible, representing the random error in Equation 1, our aim is to minimize both the bias and variance in our accident model. This approach is crucial for obtaining the most accurate estimate of the dangerousness function *f*.
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(warning=FALSE)
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=9, fig.height=6) 
+
+# configurations for plot 
+my_plot_hook <- function(x, options)
+  paste("\n", knitr::hook_plot_tex(x, options), "\n")
+knitr::knit_hooks$set(plot = my_plot_hook)
 ```
 
 ```{r, echo = FALSE, include=FALSE}
@@ -46,7 +67,7 @@ library("tidyr")
 library("dplyr")
 library("tibble")
 library("readxl")
-library("corrplot")
+library("corrplot")A
 library("lubridate")
 library("ggmap") # temp
 library("ggplot2")
@@ -55,9 +76,10 @@ library("data.table")
 
 ```{r, echo=FALSE, include=FALSE}
 # Extract data
-dat = read.csv("./../../data_raw/data_final.csv", sep = ";")
+dat = read.csv(here("data_raw", "data_final.csv"), sep=";")
+
 #Extract clean data function
-source("./../../functions/clean_data.R")
+source(here("functions", "utils.R"))
 ```
 
 ```{r, echo=FALSE, include=FALSE}
