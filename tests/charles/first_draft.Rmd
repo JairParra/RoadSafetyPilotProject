@@ -71,7 +71,50 @@ names(varnames_dict) <- gsub("[^[:alnum:]_]+", "", names(varnames_dict))
 
 ## Processing
 
-#summary(dat) 
-There are missing values for both variables "ln_distdt" "X"...
+summary(dat) 
 
-#dat<- f_clean_data(dat)
+### Missing values
+There are missing values for both variables "ln_distdt" "X" and "date_"
+
+```{r, echo=FALSE, include=FALSE}
+subset(dat, is.na(ln_distdt))[,'distdt']
+
+#summary(dat[,'ln_distdt'])
+
+hist(dat[,'ln_distdt'])
+
+dat$ln_distdt[is.na(dat$ln_distdt)] = 0
+
+```
+The data point missing for 'ln_distdt' is due to the logarithmic transformation of a distance of 0 which is undefined (-inf). Thus, to preserve the data point, we will impute its value with a very small value compared to the other points. The variable 'ln_distdt' is distributed between 4 and 9, so 0 would be a reasonably small value.
+
+The variable 'X' is empty at all points except one, thus we can simply remove this variable. 
+
+The variables X.1 seems to be problematic as it is almost empty and does not appear in the variable dictionnary, hence we removed it. 
+
+Let's explore the missing values of the variable 'X'
+
+# Assuming your dataframe is named df and the variable is named 'your_variable'
+```{r, echo=FALSE, include=FALSE}
+
+dat$X_missing_ind <- ifelse(is.na(dat$X), 1, 0)
+sum(dat$X_missing_ind)
+
+dat[!is.na(dat$X),]
+
+```
+```{r, echo=FALSE, include=FALSE}
+
+dat<- f_clean_data(dat)
+
+dat$date_
+dat$missing_date_ind = factor(ifelse(dat$date_ == "",1,0))
+sum(dat$missing_date_ind)
+
+model <- lm(acc ~ missing_date_ind, 
+             data = dat)
+summary(model)
+```
+The missing values of dates seem to be missing not at random, as the coefficient of missingness is highly significative in the prediction of the target variable accident. Therefore we cannot remove missing observations.
+
+
