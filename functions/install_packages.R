@@ -18,6 +18,7 @@ f_load_packages <- function() {
   proj_packages <- c(
     "sf", 
     "here", 
+    "DMwR2", 
     "tidyr", 
     "dplyr", 
     "haven",
@@ -28,6 +29,7 @@ f_load_packages <- function() {
     "data.table", 
     "sqldf", 
     "car", 
+    "zoo", 
     "glmnet",
     "lubridate", 
     "elasticnet", 

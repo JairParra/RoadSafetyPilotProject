@@ -11,6 +11,53 @@
 ### 1. Utility Functions ###
 ############################
 
+# Function to impute missing dates using KNN
+# 
+# Args: 
+#  df: A data frame.
+#
+# Returns: 
+#  A data frame with imputed dates.
+f_knn_date_imputation(df) {
+  
+  # Load necessary libraries
+  require(lubridate)
+  require(DMwR2)
+  
+  # Convert valid date strings to Dates and assign NA to invalid dates
+  dat$date_ <- sapply(df$date_, function(x) {
+    if (x != "" && nchar(x) == 10) {  # Check if the string is not empty and has a length of 10 (dd/mm/yyyy)
+      return(dmy(x))
+    } else {
+      return(NA)
+    }
+  }, USE.NAMES = FALSE)
+  
+  # Convert the result to a Date class (sapply might return a list otherwise)
+  df$date_ <- as.Date(df$date_)
+  
+  # Convert dates to numeric (number of days since a reference date)
+  reference_date <- as.Date("1900-01-01")
+  df$days_since_ref <- ifelse(!is.na(df$date_), as.numeric(difftime(df$date_, reference_date, units = "days")), NA)
+  
+  # Create a new data frame for KNN imputation
+  # Include 'days_since_ref' and other relevant numeric columns
+  imputation_data <- df[, c("days_since_ref","acc", num_vars)]
+  
+  # Perform KNN imputation on the new data frame
+  set.seed(123)  # for reproducibility
+  imputation_data <- knnImputation(imputation_data, k = 5)  # k is the number of neighbors
+  
+  # Update the 'date_' column in the original data frame
+  df$date_ <- reference_date + imputation_data[, "days_since_ref"]
+  
+  # Optionally, remove the temporary numeric date column
+  df$days_since_ref <- NULL
+  
+  return(df)
+}
+
+
 f_clean_data <- function(df) {
   
   # Correct names mapping
@@ -86,17 +133,20 @@ f_clean_data <- function(df) {
                     "distdt", "ln_distdt", "traffic_10000", "ped_100")
   df[numeric_vars] <- lapply(df[numeric_vars], as.numeric)
   
-  # 3. Produce statistics on the number of NAs per column and print
+  # 6. Inpute all rows with NAs for 'ln_distdt' with 0
+  df$ln_distdt[is.na(df$ln_distdt)] <- 0
+  
+  # 7. Perform KNNM imputation for 'date_'
+  df <- f_knn_date_imputation(df)
+  
+  # 6. Produce statistics on the number of NAs per column and print
   na_counts <- sapply(df, function(x) sum(is.na(x)))
   total_rows <- nrow(df)
   na_percentages <- na_counts / total_rows * 100
   na_stats <- data.frame(Count = na_counts, Percentage = na_percentages)
   na_stats_with_na <- na_stats[na_counts > 0, ]
   print(na_stats_with_na)
-  
-  # 4. Drop all rows with NAs
-  df <- df[complete.cases(df), ]
-  
+
   return(df)
 }
 
