@@ -95,7 +95,7 @@ print(head(varnames_dict))
 
 ## Preprocessing 
 
-The function `f_clean_data` performs some basic data processing including NA cleaning, removing irrelevant columns, cleaning the borough names and other basic transformations
+The function `f_clean_data` performs some basic data processing including NA cleaning, removing irrelevant columns, cleaning the borough names, inputation for `date_` and other basic transformations.
 
 ```{r}
 # reload raw data 
@@ -137,47 +137,6 @@ num_vars <- c("fi", "fli", "fri", "fti", "cli",
 
 # all covariates together 
 all_vars <- c(categ_vars, num_vars)
-```
-
-### Date Imputation 
-
-```{r}
-# Load necessary libraries
-library(lubridate)
-library(DMwR2)
-
-# Convert valid date strings to Dates and assign NA to invalid dates
-dat$date_ <- sapply(dat$date_, function(x) {
-  if (x != "" && nchar(x) == 10) {  # Check if the string is not empty and has a length of 10 (dd/mm/yyyy)
-    return(dmy(x))
-  } else {
-    return(NA)
-  }
-}, USE.NAMES = FALSE)
-
-# Convert the result to a Date class (sapply might return a list otherwise)
-dat$date_ <- as.Date(dat$date_)
-
-# Convert dates to numeric (number of days since a reference date)
-reference_date <- as.Date("1900-01-01")
-dat$days_since_ref <- ifelse(!is.na(dat$date_), as.numeric(difftime(dat$date_, reference_date, units = "days")), NA)
-
-# Create a new data frame for KNN imputation
-# Include 'days_since_ref' and other relevant numeric columns
-imputation_data <- dat[, c("days_since_ref","acc", num_vars)]
-
-# Perform KNN imputation on the new data frame
-set.seed(123)  # for reproducibility
-imputation_data <- knnImputation(imputation_data, k = 5)  # k is the number of neighbors
-
-# Update the 'date_' column in the original data frame
-dat$date_ <- reference_date + imputation_data[, "days_since_ref"]
-
-# Optionally, remove the temporary numeric date column
-dat$days_since_ref <- NULL
-
-# Print the head of the dataset to check the results
-head(dat, 20)
 ```
 
 

@@ -24,8 +24,18 @@ f_knn_date_imputation <-function(df){
   require(lubridate)
   require(DMwR2)
   
+  # list all numerical covariates 
+  num_vars <- c("fi", "fli", "fri", "fti", "cli",
+                "cri", "cti", "acc", "ln_pi", "ln_fi", "ln_fli",
+                "ln_fri", "ln_fti", "ln_cli", "ln_cri", "ln_cti",
+                "tot_crossw", "number_of_", "avg_crossw", "tot_road_w", 
+                "north_veh", "north_ped", "east_veh", "east_ped",
+                "south_veh", "south_ped", "west_veh", "west_ped", 
+                "total_lane", "of_exclusi", "commercial",
+                "distdt", "ln_distdt", "traffic_10000", "ped_100")
+  
   # Convert valid date strings to Dates and assign NA to invalid dates
-  dat$date_ <- sapply(df$date_, function(x) {
+  df$date_ <- sapply(df$date_, function(x) {
     if (x != "" && nchar(x) == 10) {  # Check if the string is not empty and has a length of 10 (dd/mm/yyyy)
       return(dmy(x))
     } else {
@@ -58,6 +68,11 @@ f_knn_date_imputation <-function(df){
 }
 
 
+# Function to clean the data, including NA cleaning, removing irrelevant columns,
+# 
+# Args: 
+# 
+# Returns: 
 f_clean_data <- function(df) {
   
   # Correct names mapping
@@ -138,7 +153,7 @@ f_clean_data <- function(df) {
   
   # 7. Perform KNNM imputation for 'date_'
   df <- f_knn_date_imputation(df)
-  
+
   # 6. Produce statistics on the number of NAs per column and print
   na_counts <- sapply(df, function(x) sum(is.na(x)))
   total_rows <- nrow(df)
