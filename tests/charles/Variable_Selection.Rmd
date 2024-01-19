@@ -1,0 +1,82 @@
+---
+header-includes:
+  - \usepackage{amsmath}
+  - \usepackage{amssymb}
+  - \usepackage{amsthm}
+  - \usepackage{fancyhdr}
+  - \pagestyle{fancy}
+  - \fancyhead[CO,CE]{Hair Parra}
+  - \fancyfoot[CO,CE]{Notes by Hair Parra}
+  - \fancyfoot[LE,RO]{\thepage}
+title: "Road Safety Pilot Project - Variable Selection"
+author: "Hair Albeiro Parra Barrera"
+geometry: margin=1.3cm
+always_allow_html: true
+output: 
+    pdf_document: 
+      extra_dependencies: ["array", "amsmath","booktabs"]
+---
+
+\newtheorem{assumption}{Assumption}[assumption]
+\newtheorem{theorem}{Theorem}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{example}{Example}
+\newtheorem{remark*}{Remark}
+\newtheorem{aside*}{Aside}
+\newtheorem{exercise*}{Exercise}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=9, fig.height=6) 
+
+# configurations for plot 
+my_plot_hook <- function(x, options)
+  paste("\n", knitr::hook_plot_tex(x, options), "\n")
+knitr::knit_hooks$set(plot = my_plot_hook)
+```
+
+## Libraries 
+
+```{r libraries, message=FALSE, warning=FALSE}
+# CRAN libraries
+library("sf") # temp
+library("here")
+library("tidyr")
+library("dplyr")
+library("tibble")
+library("readxl")
+library("corrplot")
+library("lubridate")
+library("ggmap") # temp 
+library("ggplot2")
+library("data.table")
+
+# Custom scripts  
+source(here("functions", "utils.R"))
+source(here("functions", "clean_data.R"))
+source(here("functions", "install_packages.R"))
+
+# load packages if necessary 
+f_load_packages()
+```
+
+## Load the data 
+
+
+```{r message=FALSE, warning=FALSE}
+# Load the dataset and perform data cleaning 
+dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
+dat <- f_clean_data(dat)
+
+# Load variable descriptors 
+result <- f_load_varnames(here("data_raw", "Dictionnaire_final.xlsx"))
+varnames <- result$varnames
+varnames_dict <- result$varnames_dict
+
+# preview dat 
+head(dat)
+```
+
+

@@ -153,15 +153,7 @@ f_clean_data <- function(df) {
   
   # 7. Perform KNNM imputation for 'date_'
   df <- f_knn_date_imputation(df)
-
-  # 6. Produce statistics on the number of NAs per column and print
-  na_counts <- sapply(df, function(x) sum(is.na(x)))
-  total_rows <- nrow(df)
-  na_percentages <- na_counts / total_rows * 100
-  na_stats <- data.frame(Count = na_counts, Percentage = na_percentages)
-  na_stats_with_na <- na_stats[na_counts > 0, ]
-  print(na_stats_with_na)
-
+  
   return(df)
 }
 

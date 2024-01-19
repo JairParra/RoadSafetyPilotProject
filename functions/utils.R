@@ -28,6 +28,24 @@ f_get_description <- function(variable, varnames_dict) {
   }
 }
 
+# Function to load the variable descriptions as dictionary into the env 
+f_load_varnames <- function(excel_path) {
+  
+  # Load necessary library
+  require(readxl)
+  require(here)
+  
+  # Read the Excel file
+  varnames <- read_excel(excel_path)
+  
+  # Create the dictionary
+  varnames_dict <- setNames(as.list(varnames$DESCRIPTION), varnames$NOM)
+  names(varnames_dict) <- gsub("[^[:alnum:]_]+", "", names(varnames_dict)) # Ensure clean list names
+  
+  # Return a list containing both objects
+  return(list(varnames = varnames, varnames_dict = varnames_dict))
+}
+
 # Function to compute different correlation measures
 f_compute_correlations <- function(df, target_var, filtered_num_vars = filtered_num_vars) {
   require("dplyr")
