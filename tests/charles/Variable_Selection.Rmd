@@ -1,20 +1,25 @@
 ---
-header-includes:
-  - \usepackage{amsmath}
-  - \usepackage{amssymb}
-  - \usepackage{amsthm}
-  - \usepackage{fancyhdr}
-  - \pagestyle{fancy}
-  - \fancyhead[CO,CE]{Hair Parra}
-  - \fancyfoot[CO,CE]{Notes by Hair Parra}
-  - \fancyfoot[LE,RO]{\thepage}
 title: "Road Safety Pilot Project - Variable Selection"
 author: "Hair Albeiro Parra Barrera"
-geometry: margin=1.3cm
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhead[CO,CE]{Hair Parra}
+- \fancyfoot[CO,CE]{Notes by Hair Parra}
+- \fancyfoot[LE,RO]{\thepage}
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    extra_dependencies:
+    - array
+    - amsmath
+    - booktabs
 always_allow_html: true
-output: 
-    pdf_document: 
-      extra_dependencies: ["array", "amsmath","booktabs"]
+geometry: margin=1.3cm
 ---
 
 \newtheorem{assumption}{Assumption}[assumption]
@@ -52,6 +57,7 @@ library("lubridate")
 library("ggmap") # temp 
 library("ggplot2")
 library("data.table")
+library("MASS")
 
 # Custom scripts  
 source(here("functions", "utils.R"))
@@ -59,7 +65,7 @@ source(here("functions", "clean_data.R"))
 source(here("functions", "install_packages.R"))
 
 # load packages if necessary 
-f_load_packages()
+#f_load_packages()
 ```
 
 ## Load the data 
@@ -68,7 +74,17 @@ f_load_packages()
 ```{r message=FALSE, warning=FALSE}
 # Load the dataset and perform data cleaning 
 dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
+
+# Create missing indicator
+dat$missing_date_ind = factor(ifelse(dat$date_ == "",1,0))
+
 dat <- f_clean_data(dat)
+
+#Extract month and year
+dat$month <- factor(format(dat$date_, "%m"))
+dat$year <- as.numeric(format(dat$date_, "%Y"))
+dat$dow <- factor(weekdays(dat$date_))
+
 
 # Load variable descriptors 
 result <- f_load_varnames(here("data_raw", "Dictionnaire_final.xlsx"))
@@ -80,3 +96,38 @@ head(dat)
 ```
 
 
+```{r message=FALSE, warning=FALSE}
+# Variables to remove
+excluded_vars <- c("int_no", "date_")
+dat <- dat[, -which(names(dat) %in% excluded_vars)]
+```
+
+```{r message=FALSE, warning=FALSE}
+# Create relevant interactions
+
+initial_model <- lm(acc ~ . 
+                    + month * cli
+                    + month * cri
+                    + month * cti
+                    + month * ln_cli
+                    + month * ln_cri
+                    + month * ln_cti
+                    + dow * cli
+                    + dow * cri
+                    + dow * cti
+                    + dow * ln_cli
+                    + dow * ln_cri
+                    + dow * ln_cti
+                    , data = dat)
+
+initial_model <- lm(acc ~ . , data = dat)
+
+# Perform stepwise feature selection with interactions using AIC
+final_model <- stepAIC(initial_model, direction = "both")
+
+# Display the summary of the final model
+summary(final_model)
+
+
+```
+Performance measures collected were retrieved at a specfic time of the year. This may affect the impact of those variables. Create interaction.
