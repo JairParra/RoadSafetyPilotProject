@@ -18,7 +18,7 @@
 #
 # Returns: 
 #  A data frame with imputed dates.
-f_knn_date_imputation(df) {
+f_knn_date_imputation <-function(df){
   
   # Load necessary libraries
   require(lubridate)
