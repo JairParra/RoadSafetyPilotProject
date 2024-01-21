@@ -34,7 +34,8 @@ f_load_packages <- function() {
     "lubridate", 
     "elasticnet", 
     "factoextra", 
-    "randomForest"
+    "randomForest", 
+    "fastDummies",
   )
   
   for (package in proj_packages) {

@@ -28,6 +28,7 @@ f_get_description <- function(variable, varnames_dict) {
   }
 }
 
+
 # Function to load the variable descriptions as dictionary into the env 
 f_load_varnames <- function(excel_path) {
   
@@ -45,6 +46,32 @@ f_load_varnames <- function(excel_path) {
   # Return a list containing both objects
   return(list(varnames = varnames, varnames_dict = varnames_dict))
 }
+
+
+# Function to convert the factor variables to dummies
+# 
+# Args: 
+#  df: A data frame.
+#  all_vars: A vector of all variables to include in the final dataframe.
+#
+# Returns: 
+#  A data frame wher eall factor variables have been converted to dummy variables. 
+f_convert_to_dummies <- function(df, all_vars) {
+  require("fastDummies")
+  
+  # Filter the dataframe to only include variables in 'all_vars'
+  df_filtered <- df[, all_vars, drop = FALSE]
+  
+  # Create dummy variables using fastDummies for the filtered dataframe
+  df_filtered <- dummy_cols(df_filtered, remove_first_dummy = TRUE, remove_selected_columns = TRUE)
+  
+  # Merge the dummies back with the original dataframe
+  # This step ensures that any variables not in 'all_vars' are retained in the final dataframe
+  df <- cbind(df[, !names(df) %in% all_vars], df_filtered)
+  
+  return(df)
+}
+
 
 # Function to compute different correlation measures
 f_compute_correlations <- function(df, target_var, filtered_num_vars = filtered_num_vars) {

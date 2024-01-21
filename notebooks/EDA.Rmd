@@ -142,6 +142,19 @@ all_vars <- c(categ_vars, num_vars)
 ```
 
 
+### Dummy Variables 
+
+```{r}
+# version with dummy variables instead of factors
+dat_dum <- f_convert_to_dummies(dat, all_vars)
+head(dat_dum)
+```
+
+```{r}
+head(dat)
+```
+
+
 
 ## Correlation Analysis 
 
