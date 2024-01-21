@@ -11,6 +11,41 @@
 ### 1. Utility Functions ###
 ############################
 
+# Function to standardize numerical variables
+# 
+# Args:
+#   data: A data frame.
+#   reverse: If TRUE, reverses the standardization. Defaults to FALSE.
+#   auto: If TRUE, automatically standardizes all numeric columns. Defaults to FALSE.
+#   cols: A vector of column names to standardize. Defaults to NULL.
+#
+# Returns:
+#   A data frame with standardized columns.
+f_standardize_data <- function(data, reverse = FALSE, auto = FALSE, cols = NULL) {
+  if (reverse) {
+    if (is.null(cols)) {
+      stop("Please specify the columns to reverse standardize.")
+    }
+    # Reverse standardization for specified columns
+    data %>% 
+      mutate_at(vars(all_of(cols)), ~ . / attr(., "scaled:scale"))
+  } else {
+    if (auto) {
+      # Standardize all numeric columns
+      data %>% 
+        mutate_if(is.numeric, scale)
+    } else {
+      if (is.null(cols)) {
+        stop("Please specify the columns to standardize or set auto = TRUE.")
+      }
+      # Standardize specified columns
+      data %>% 
+        mutate_at(vars(all_of(cols)), scale)
+    }
+  }
+}
+
+
 # Function to impute missing dates using KNN
 # 
 # Args: 
@@ -34,8 +69,11 @@ f_knn_date_imputation <-function(df){
                 "total_lane", "of_exclusi", "commercial",
                 "distdt", "ln_distdt", "traffic_10000", "ped_100")
   
+  # Create a temporary copy of the data 
+  temp_df <- df
+  
   # Convert valid date strings to Dates and assign NA to invalid dates
-  df$date_ <- sapply(df$date_, function(x) {
+  temp_df$date_ <- sapply(temp_df$date_, function(x) {
     if (x != "" && nchar(x) == 10) {  # Check if the string is not empty and has a length of 10 (dd/mm/yyyy)
       return(dmy(x))
     } else {
@@ -44,15 +82,19 @@ f_knn_date_imputation <-function(df){
   }, USE.NAMES = FALSE)
   
   # Convert the result to a Date class (sapply might return a list otherwise)
-  df$date_ <- as.Date(df$date_)
+  temp_df$date_ <- as.Date(temp_df$date_)
   
   # Convert dates to numeric (number of days since a reference date)
   reference_date <- as.Date("1900-01-01")
-  df$days_since_ref <- ifelse(!is.na(df$date_), as.numeric(difftime(df$date_, reference_date, units = "days")), NA)
+  temp_df$days_since_ref <- ifelse(!is.na(temp_df$date_), 
+                                   as.numeric(difftime(temp_df$date_, reference_date, units = "days")), NA)
+  
+  # Standardize the numerical variables in the temporary copy
+  temp_df <- f_standardize_data(temp_df, cols = num_vars)
   
   # Create a new data frame for KNN imputation
   # Include 'days_since_ref' and other relevant numeric columns
-  imputation_data <- df[, c("days_since_ref","acc", num_vars)]
+  imputation_data <- temp_df[, c("days_since_ref","acc", num_vars)]
   
   # Perform KNN imputation on the new data frame
   set.seed(123)  # for reproducibility
@@ -61,8 +103,8 @@ f_knn_date_imputation <-function(df){
   # Update the 'date_' column in the original data frame
   df$date_ <- reference_date + imputation_data[, "days_since_ref"]
   
-  # Optionally, remove the temporary numeric date column
-  df$days_since_ref <- NULL
+  # # Optionally, remove the temporary numeric date column
+  # df$days_since_ref <- NULL
   
   return(df)
 }
@@ -73,7 +115,7 @@ f_knn_date_imputation <-function(df){
 # Args: 
 # 
 # Returns: 
-f_clean_data <- function(df) {
+f_clean_data <- function(df, create_dummies=FALSE) {
   
   # Correct names mapping
   correct_names <- list(
@@ -157,39 +199,5 @@ f_clean_data <- function(df) {
   return(df)
 }
 
-
-# Function to standardize numerical variables
-# 
-# Args:
-#   data: A data frame.
-#   reverse: If TRUE, reverses the standardization. Defaults to FALSE.
-#   auto: If TRUE, automatically standardizes all numeric columns. Defaults to FALSE.
-#   cols: A vector of column names to standardize. Defaults to NULL.
-#
-# Returns:
-#   A data frame with standardized columns.
-f_standardize_data <- function(data, reverse = FALSE, auto = FALSE, cols = NULL) {
-  if (reverse) {
-    if (is.null(cols)) {
-      stop("Please specify the columns to reverse standardize.")
-    }
-    # Reverse standardization for specified columns
-    data %>% 
-      mutate_at(vars(all_of(cols)), ~ . / attr(., "scaled:scale"))
-  } else {
-    if (auto) {
-      # Standardize all numeric columns
-      data %>% 
-        mutate_if(is.numeric, scale)
-    } else {
-      if (is.null(cols)) {
-        stop("Please specify the columns to standardize or set auto = TRUE.")
-      }
-      # Standardize specified columns
-      data %>% 
-        mutate_at(vars(all_of(cols)), scale)
-    }
-  }
-}
 
 

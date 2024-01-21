@@ -104,6 +104,8 @@ dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
 # perform data cleaning 
 dat <- f_clean_data(dat)
 ```
+
+
 The datatypes now are of the correct type for all variables: 
 
 ```{r}
@@ -295,7 +297,6 @@ ggplot(average_monthly_accidents, aes(x = month_only, y = average_accidents, fil
   blue_gradient
 
 rm(dat_plt); gc(); # Remove temporary data frame and run garbage collector
-
 ```
 
 ## Top and Bottom 10 Intersections with Most Accidents
