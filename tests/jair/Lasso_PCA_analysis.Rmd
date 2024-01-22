@@ -50,6 +50,7 @@ library("haven")
 library("tibble")
 library("readxl")
 library("corrplot")
+library("factoextra")
 library("ggmap") # temp 
 library("randomForest")
 library("ggplot2")
@@ -156,7 +157,7 @@ K = 6
 spcafit=spca(datpca,
              K=K, # number of components
              sparse="penalty", # penalty method
-             para=rep(48,K)) # values of lambda for each component
+             para=rep(60,K)) # values of lambda for each component
 
 spcafit
 ```
@@ -184,7 +185,7 @@ importance_rf <- importance(rf_model)
 
 # Create a data frame of variables and their importance
 variable_importance <- data.frame(Variable = rownames(importance_rf), 
-                                  Importance = importance[, "%IncMSE"])
+                                  Importance = importance_rf[, "%IncMSE"])
 variable_importance <- variable_importance[order(variable_importance$Importance, 
                                                  decreasing = TRUE), ]
 variable_importance$description <- sapply(variable_importance$Variable, 
