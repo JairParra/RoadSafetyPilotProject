@@ -27,7 +27,7 @@ depending on the directions and movements of the vehicles.
 ![](img/top_inter_most_acc.png)
 
 ### Aggregated Number of Accidents Month by Month
-![](img/top_inter_most_acc.png)
+![](img/avg_acc_per_month.png)
 
 ## Results 
 
