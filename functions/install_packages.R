@@ -35,7 +35,7 @@ f_load_packages <- function() {
     "elasticnet", 
     "factoextra", 
     "randomForest", 
-    "fastDummies",
+    "fastDummies"
   )
   
   for (package in proj_packages) {
