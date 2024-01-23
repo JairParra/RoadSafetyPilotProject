@@ -30,6 +30,7 @@ f_load_packages <- function() {
     "sqldf", 
     "car", 
     "zoo", 
+    "rockchalk", 
     "glmnet",
     "lubridate", 
     "elasticnet", 
