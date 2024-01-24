@@ -58,6 +58,7 @@ library("ggmap") # temp
 library("ggplot2")
 library("data.table")
 library("MASS")
+library(glmnet)
 
 # Custom scripts  
 source(here("functions", "utils.R"))
@@ -75,15 +76,7 @@ source(here("functions", "install_packages.R"))
 # Load the dataset and perform data cleaning 
 dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
 
-# Create missing indicator
-dat$missing_date_ind = factor(ifelse(dat$date_ == "",1,0))
-
 dat <- f_clean_data(dat)
-
-#Extract month and year
-dat$month <- factor(format(dat$date_, "%m"))
-dat$year <- as.numeric(format(dat$date_, "%Y"))
-dat$dow <- factor(weekdays(dat$date_))
 
 
 # Load variable descriptors 
@@ -93,14 +86,11 @@ varnames_dict <- result$varnames_dict
 
 # preview dat 
 head(dat)
-```
 
 
-```{r message=FALSE, warning=FALSE}
-# Variables to remove
-excluded_vars <- c("int_no", "date_")
-dat <- dat[, -which(names(dat) %in% excluded_vars)]
+
 ```
+
 
 ```{r message=FALSE, warning=FALSE}
 # Create relevant interactions
@@ -120,14 +110,46 @@ initial_model <- lm(acc ~ .
                     + dow * ln_cti
                     , data = dat)
 
-initial_model <- lm(acc ~ . , data = dat)
+#initial_model <- lm(acc ~ . , data = dat)
 
 # Perform stepwise feature selection with interactions using AIC
-final_model <- stepAIC(initial_model, direction = "both")
+final_model <- stepAIC(initial_model, direction = "both", k = log(nrow(dat)))
 
 # Display the summary of the final model
 summary(final_model)
 
+# Best BIC found so far is 3576.66 using stepwise selection
 
 ```
 Performance measures collected were retrieved at a specfic time of the year. This may affect the impact of those variables. Create interaction.
+
+```{r message=FALSE, warning=FALSE}
+# Combine the response and predictor variables into a matrix
+X <- model.matrix(acc ~ ., data = dat)[, -1]  # Remove intercept column
+y <- dat$acc
+
+# Set up a Lasso model with cross-validation
+lasso_cv_model <- cv.glmnet(X, y, alpha = 1)  # alpha = 1 for Lasso
+
+# Plot the cross-validated mean squared error (CV MSE) as a function of log(lambda)
+plot(lasso_cv_model)
+
+# Identify the lambda value that minimizes the CV MSE
+best_lambda <- lasso_cv_model$lambda.min
+
+cat("Selected Lambda (lambda.min):", lasso_cv_model$lambda.min, "\n")
+cat("Cross-validated Mean Squared Error (CV MSE):", min(lasso_cv_model$cvm), "\n")
+
+# Fit the final Lasso model with the selected lambda
+final_lasso_model <- glmnet(X, y, alpha = 1, lambda = best_lambda)
+
+# Extract coefficients from the final model
+selected_features <- coef(final_lasso_model)
+
+# Display the selected features
+print(selected_features)
+
+# MSE on cross validation is 6.7
+```
+
+

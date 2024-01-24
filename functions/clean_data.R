@@ -110,6 +110,25 @@ f_knn_date_imputation <-function(df){
 }
 
 
+# Function to extract time variables from dates and remove date_.
+# 
+# Args: 
+#  df: A data frame.
+#
+# Returns: 
+#  A data frame with new variables and without date_.
+f_extract_time = function(df){
+  
+  df$month = factor(format(df$date_, "%m"))
+  df$year <- as.numeric(format(df$date_, "%Y"))
+  df$dow <- factor(weekdays(df$date_))
+  
+  df = subset(df, select=-c(date_))
+  
+  return(df)
+}
+
+
 # Function to clean the data, including NA cleaning, removing irrelevant columns,
 # 
 # Args: 
@@ -158,7 +177,8 @@ f_clean_data <- function(df, create_dummies=FALSE) {
   }
   
   # 1. Remove specified columns
-  df <- df[ , !(names(df) %in% c("street_1", "street_2", "X", "X.1"))]
+  df <- df[ , !(names(df) %in% c("street_1", "street_2", "X", "X.1",
+                                 "int_no", 'rue_1', 'rue_2'))]
   
   # 2. Convert 'borough' to a categorical variable and correct names
   df$borough <- as.factor(sapply(df$borough, correct_borough_name))
@@ -180,7 +200,7 @@ f_clean_data <- function(df, create_dummies=FALSE) {
   # Example: df$ordinal_var <- factor(df$ordinal_var, order = TRUE, levels = c("Low", "Medium", "High"))
   
   # 5. Ensure numerical variables are of type numeric
-  numeric_vars <- c("int_no", "fi", "fli", "fri", "fti", "cli",
+  numeric_vars <- c("fi", "fli", "fri", "fti", "cli",
                     "cri", "cti", "acc", "ln_pi", "ln_fi", "ln_fli",
                     "ln_fri", "ln_fti", "ln_cli", "ln_cri", "ln_cti",
                     "tot_crossw", "number_of_", "avg_crossw", "tot_road_w", 
@@ -190,14 +210,24 @@ f_clean_data <- function(df, create_dummies=FALSE) {
                     "distdt", "ln_distdt", "traffic_10000", "ped_100")
   df[numeric_vars] <- lapply(df[numeric_vars], as.numeric)
   
-  # 6. Inpute all rows with NAs for 'ln_distdt' with 0
+  # 6. Impute all rows with NAs for 'ln_distdt' with 0
   df$ln_distdt[is.na(df$ln_distdt)] <- 0
   
-  # 7. Perform KNNM imputation for 'date_'
+  # 7. Create an indicator variable for NA's
+  df$missing_date_ind = factor(ifelse(df$date_ == "",1,0))
+  
+  # 8. Perform KNNM imputation for 'date_'
   df <- f_knn_date_imputation(df)
+  
+  # 9. Extract time variables
+  df = f_extract_time(df)
   
   return(df)
 }
+
+
+
+
 
 
 
