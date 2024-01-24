@@ -59,6 +59,11 @@ library("ggplot2")
 library("data.table")
 library("MASS")
 library(glmnet)
+library(caret)
+
+#install.packages("forcats")
+library(forcats)
+
 
 # Custom scripts  
 source(here("functions", "utils.R"))
@@ -78,7 +83,6 @@ dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
 
 dat <- f_clean_data(dat)
 
-
 # Load variable descriptors 
 result <- f_load_varnames(here("data_raw", "Dictionnaire_final.xlsx"))
 varnames <- result$varnames
@@ -87,9 +91,82 @@ varnames_dict <- result$varnames_dict
 # preview dat 
 head(dat)
 
+```
+The variable 'all_pedest' has very rare occurence.
+
+The variable 'number of' could be treated as categorical and is very unevenly distributed.
+
+The variables traffic_10000 = fi
+The variable ped_100 = pi
+
+Visually, the ln transformation seem to make the relationship between predictors and target more linear.
+
+```{r message=FALSE, warning=FALSE}
+summary(dat)
+
+table(dat$number_of_)
+
+table(dat$all_pedest)
+
+table(dat$borough)
+
+
+# Function to plot numerical variables against the target variable
+plotNumericalVsTarget <- function(input_df, target_variable) {
+  numerical_columns <- sapply(input_df, is.numeric)
+  
+  for (col in names(input_df)[numerical_columns]) {
+    if (col != target_variable) {
+      print(col)
+      c = ggplot(input_df, aes_string(x = col, y = target_variable)) +
+        geom_point() +
+        labs(title = paste(col, "vs", target_variable),
+             x = col, y = target_variable)
+      print(c)
+    }
+  }
+}
+
+
+plotNumericalVsTarget(dat, "acc")
 
 
 ```
+
+```{r message=FALSE, warning=FALSE}
+
+# Check the frequency of each level in the 'borough' factor variable
+borough_levels <- table(dat$borough)
+
+# Identify levels with fewer than 30 observations
+levels_to_group <- names(borough_levels[borough_levels < 50])
+
+# Create a new factor with 'Other' level for levels with fewer than 30 observations
+dat$borough_grouped <- fct_collapse(dat$borough, Other = levels_to_group)
+
+# Print the updated 'borough' factor variable
+cat("Original 'borough' factor variable:\n")
+table(dat$borough)
+
+cat("\n'borough' factor variable with 'Other' level:\n")
+table(dat$borough_grouped)
+
+```
+
+
+```{r message=FALSE, warning=FALSE}
+# Create a linear regression model using caret and perform cross-validation
+ctrl <- trainControl(method = "cv", number = 10)
+model <- train(acc ~., data = dat, method = "lm", trControl = ctrl)
+
+# Print the cross-validated results
+print(model)
+
+# Calculate the average MSE across all folds
+average_mse <- mean(cv_mse, na.rm = TRUE)
+cat("\nAverage MSE across all folds:", average_mse)
+```
+
 
 
 ```{r message=FALSE, warning=FALSE}
@@ -119,7 +196,12 @@ final_model <- stepAIC(initial_model, direction = "both", k = log(nrow(dat)))
 summary(final_model)
 
 # Best BIC found so far is 3576.66 using stepwise selection
+# Final model:
 
+#lm(formula = acc ~ x + fi + fri + cli + cti + ln_pi + ln_fri + 
+#    ln_cri + ln_cti + tot_crossw + median + green_stra + half_phase + 
+#    north_veh + commercial + ln_distdt + missing_date_ind + dow + 
+#    parking + cti:dow, data = dat)
 ```
 Performance measures collected were retrieved at a specfic time of the year. This may affect the impact of those variables. Create interaction.
 
