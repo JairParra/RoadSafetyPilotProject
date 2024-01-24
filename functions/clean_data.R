@@ -129,6 +129,20 @@ f_extract_time = function(df){
 }
 
 
+
+f_group_borough = function(df, n){
+  
+  levels <- table(df$borough)
+  
+  # Identify levels with fewer than n observations
+  levels_to_group <- names(levels[levels < n])
+  
+  # Create a new factor with 'Other' level for levels with fewer than n observations
+  df$borough_grouped <- fct_collapse(df$borough, Other = levels_to_group)
+  
+  return(df)
+}
+
 # Function to clean the data, including NA cleaning, removing irrelevant columns,
 # 
 # Args: 
@@ -222,8 +236,13 @@ f_clean_data <- function(df, create_dummies=FALSE) {
   # 9. Extract time variables
   df = f_extract_time(df)
   
+  # 10. Group boroughs
+  df =  f_group_borough(df, 50)
+  
   return(df)
 }
+
+
 
 
 

@@ -108,7 +108,7 @@ table(dat$number_of_)
 
 table(dat$all_pedest)
 
-table(dat$borough)
+table(dat$borough_grouped)
 
 
 # Function to plot numerical variables against the target variable
