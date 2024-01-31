@@ -26,7 +26,8 @@ To do so, we need to asses the **dangerousness** of all intersection and rank th
 
 $$
 Accidents = Dangerousness + RandomError \tag{1}
-$$\
+$$
+
 Or in terms of variables, let *f* denote the function of dangerousness that we want to estimate: $$
 acc = f + \epsilon \tag{2}
 $$ The function of dangerousness can be further broken down in two variables which are **risk** and **exposure**.

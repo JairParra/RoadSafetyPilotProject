@@ -58,8 +58,8 @@ library("ggmap") # temp
 library("ggplot2")
 library("data.table")
 library("MASS")
-library(glmnet)
-library(caret)
+library("glmnet")
+library("caret")
 
 #install.packages("forcats")
 library(forcats)
@@ -80,7 +80,6 @@ source(here("functions", "install_packages.R"))
 ```{r message=FALSE, warning=FALSE}
 # Load the dataset and perform data cleaning 
 dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
-
 dat <- f_clean_data(dat)
 
 # Load variable descriptors 
@@ -90,8 +89,8 @@ varnames_dict <- result$varnames_dict
 
 # preview dat 
 head(dat)
-
 ```
+
 The variable 'all_pedest' has very rare occurence.
 
 The variable 'number of' could be treated as categorical and is very unevenly distributed.

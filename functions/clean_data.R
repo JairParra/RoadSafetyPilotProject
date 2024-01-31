@@ -50,24 +50,15 @@ f_standardize_data <- function(data, reverse = FALSE, auto = FALSE, cols = NULL)
 # 
 # Args: 
 #  df: A data frame.
+#  num_vars: list of numerical variables (columns) to consider in the dataframe
 #
 # Returns: 
 #  A data frame with imputed dates.
-f_knn_date_imputation <-function(df){
+f_knn_date_imputation <-function(df, num_vars){
   
   # Load necessary libraries
-  require(lubridate)
-  require(DMwR2)
-  
-  # list all numerical covariates 
-  num_vars <- c("fi", "fli", "fri", "fti", "cli",
-                "cri", "cti", "acc", "ln_pi", "ln_fi", "ln_fli",
-                "ln_fri", "ln_fti", "ln_cli", "ln_cri", "ln_cti",
-                "tot_crossw", "number_of_", "avg_crossw", "tot_road_w", 
-                "north_veh", "north_ped", "east_veh", "east_ped",
-                "south_veh", "south_ped", "west_veh", "west_ped", 
-                "total_lane", "of_exclusi", "commercial",
-                "distdt", "ln_distdt", "traffic_10000", "ped_100")
+  require("lubridate")
+  require("DMwR2")
   
   # Create a temporary copy of the data 
   temp_df <- df
@@ -130,6 +121,13 @@ f_extract_time = function(df){
 
 
 
+# Function to group boroughs with fewer than n observations
+# 
+# Args: 
+#  df: A data frame.
+#
+# Returns: 
+#  A data frame with new variables and without date_.
 f_group_borough = function(df, n){
   
   levels <- table(df$borough)
@@ -148,7 +146,10 @@ f_group_borough = function(df, n){
 # Args: 
 # 
 # Returns: 
-f_clean_data <- function(df, create_dummies=FALSE) {
+f_clean_data <- function(df, create_dummies=FALSE, 
+                         group_boroughs=TRUE, 
+                         drop_borough=FALSE,
+                         drop_year=FALSE) {
   
   # Correct names mapping
   correct_names <- list(
@@ -192,7 +193,9 @@ f_clean_data <- function(df, create_dummies=FALSE) {
   
   # 1. Remove specified columns
   df <- df[ , !(names(df) %in% c("street_1", "street_2", "X", "X.1",
-                                 "int_no", 'rue_1', 'rue_2'))]
+                                 "int_no", 'rue_1', 'rue_2', 
+                                 "traffic_10000", "ped_100"  # drop repeated variables
+                                 ))]
   
   # 2. Convert 'borough' to a categorical variable and correct names
   df$borough <- as.factor(sapply(df$borough, correct_borough_name))
@@ -201,14 +204,14 @@ f_clean_data <- function(df, create_dummies=FALSE) {
   categ_vars <- c("all_pedest", 
                    "median", "green_stra", "half_phase", "any_ped_pr", 
                    "ped_countd", "lt_protect", "lt_restric", "lt_prot_re",
-                   "any_exclus", "curb_exten", "all_red_an", "new_half_r")
+                   "any_exclus", "curb_exten", "all_red_an", "new_half_r"
+                  )
   for (var in categ_vars) {
     df[[var]] <- as.factor(df[[var]])
   }
   
   # `parking` needs to be treated separatedly 
   df$parking <- as.factor(ifelse(df$parking == 0.0, 0, ifelse(df$parking == 0.5, 1, 2)))
-
   
   # 4. Convert ordinal variables to ordered factors (if any)
   # Example: df$ordinal_var <- factor(df$ordinal_var, order = TRUE, levels = c("Low", "Medium", "High"))
@@ -218,10 +221,11 @@ f_clean_data <- function(df, create_dummies=FALSE) {
                     "cri", "cti", "acc", "ln_pi", "ln_fi", "ln_fli",
                     "ln_fri", "ln_fti", "ln_cli", "ln_cri", "ln_cti",
                     "tot_crossw", "number_of_", "avg_crossw", "tot_road_w", 
-                    "north_veh", "north_ped", "east_veh", "east_ped",
                     "south_veh", "south_ped", "west_veh", "west_ped", 
                     "total_lane", "of_exclusi", "commercial",
-                    "distdt", "ln_distdt", "traffic_10000", "ped_100")
+                    "distdt", "ln_distdt"
+                    # "traffic_10000", "ped_100" # repeated columns
+                    )
   df[numeric_vars] <- lapply(df[numeric_vars], as.numeric)
   
   # 6. Impute all rows with NAs for 'ln_distdt' with 0
@@ -231,13 +235,39 @@ f_clean_data <- function(df, create_dummies=FALSE) {
   df$missing_date_ind = factor(ifelse(df$date_ == "",1,0))
   
   # 8. Perform KNNM imputation for 'date_'
-  df <- f_knn_date_imputation(df)
+  df <- f_knn_date_imputation(df, numeric_vars)
   
   # 9. Extract time variables
   df = f_extract_time(df)
   
   # 10. Group boroughs
-  df =  f_group_borough(df, 50)
+  if(group_boroughs){
+    # Group boroughs with fewer than 50 observations
+    df =  f_group_borough(df, 50)
+    
+    # drop the old borough columns
+    if(drop_borough){
+      df$borough = NULL
+    }
+  }
+
+  # 11. Rename 'x' to 'latitude' and 'y' to 'longitude'
+  colnames(df)[colnames(df) %in% c("x", "y")] <- c("latitude", "longitude")
+  
+  # 12. Optionally, drop additional columns like year 
+  if(drop_year){
+    df$year = NULL
+  }
+  
+  # 13. Convert positive integer variables to factors (as better representation)
+  categ_vars <- c(
+    "number_of_", "total_lane", "commercial", "year"
+  )
+  for (var in categ_vars) {
+    if(var %in% names(df)){
+      df[[var]] <- as.factor(df[[var]])
+    }
+  }
   
   return(df)
 }

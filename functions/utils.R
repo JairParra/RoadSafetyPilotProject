@@ -69,6 +69,11 @@ f_convert_to_dummies <- function(df, all_vars) {
   # This step ensures that any variables not in 'all_vars' are retained in the final dataframe
   df <- cbind(df[, !names(df) %in% all_vars], df_filtered)
   
+  # Remove this weird column if it exists
+  if ("df[, !names(df) %in% all_vars]" %in% names(df)) {
+    df <- df[, !names(df) %in% "df[, !names(df) %in% all_vars]"]
+  }
+  
   return(df)
 }
 

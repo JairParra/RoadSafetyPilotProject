@@ -1,20 +1,25 @@
 ---
-header-includes:
-  - \usepackage{amsmath}
-  - \usepackage{amssymb}
-  - \usepackage{amsthm}
-  - \usepackage{fancyhdr}
-  - \pagestyle{fancy}
-  - \fancyhead[CO,CE]{Hair Parra}
-  - \fancyfoot[CO,CE]{Notes by Hair Parra}
-  - \fancyfoot[LE,RO]{\thepage}
 title: "Road Safety Pilot Project - Variable Selection"
-author: "Hair Albeiro Parra Barrera"
-geometry: margin=1.3cm
+author: "Charles"
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhead[CO,CE]{Hair Parra}
+- \fancyfoot[CO,CE]{Notes by Hair Parra}
+- \fancyfoot[LE,RO]{\thepage}
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    extra_dependencies:
+    - array
+    - amsmath
+    - booktabs
 always_allow_html: true
-output: 
-    pdf_document: 
-      extra_dependencies: ["array", "amsmath","booktabs"]
+geometry: margin=1.3cm
 ---
 
 \newtheorem{assumption}{Assumption}[assumption]
@@ -52,6 +57,13 @@ library("lubridate")
 library("ggmap") # temp 
 library("ggplot2")
 library("data.table")
+library("MASS")
+library("glmnet")
+library("caret")
+
+#install.packages("forcats")
+library(forcats)
+
 
 # Custom scripts  
 source(here("functions", "utils.R"))
@@ -59,7 +71,7 @@ source(here("functions", "clean_data.R"))
 source(here("functions", "install_packages.R"))
 
 # load packages if necessary 
-f_load_packages()
+#f_load_packages()
 ```
 
 ## Load the data 
@@ -78,5 +90,240 @@ varnames_dict <- result$varnames_dict
 # preview dat 
 head(dat)
 ```
+
+- The variable `all_pedest` has very rare occurrence.
+- The variable `number of` could be treated as categorical and is very unevenly distributed.
+- The variables `traffic_10000 = fi`
+- The variable `ped_100 = pi`
+
+Visually, the `ln` transformation seem to make the relationship between predictors and target more linear.
+
+```{r}
+# Summary of the dataset
+summary(dat)
+```
+
+```{r}
+# Display frequency table for the 'number_of_' column
+table(dat$number_of_)
+```
+```{r}
+# Display frequency table for the 'all_pedest' column
+table(dat$all_pedest)
+```
+
+```{r}
+# Display frequency table for the 'borough_grouped' column
+table(dat$borough_grouped)
+```
+
+
+
+```{r message=FALSE, warning=FALSE}
+
+# Function to plot numerical variables against the target variable
+plotNumericalVsTarget <- function(input_df, target_variable) {
+  # Identify numerical columns in the input dataframe
+  numerical_columns <- sapply(input_df, is.numeric)
+  
+  # Loop through each numerical column
+  for (col in names(input_df)[numerical_columns]) {
+    # Check if the current column is not the target variable
+    if (col != target_variable) {
+      # Print the current column name
+      print(col)
+      
+      # Create a scatter plot for the current numerical column against the target variable
+      c = ggplot(input_df, aes_string(x = col, y = target_variable)) +
+        geom_point() +
+        labs(title = paste(col, "vs", target_variable),
+             x = col, y = target_variable)
+      
+      # Print the scatter plot
+      print(c)
+    }
+  }
+}
+
+# Call the plotNumericalVsTarget function with the dataset 'dat' and target variable 'acc'
+plotNumericalVsTarget(dat, "acc")
+
+```
+
+```{r message=FALSE, warning=FALSE}
+
+# Check the frequency of each level in the 'borough' factor variable
+borough_levels <- table(dat$borough)
+
+# Identify levels with fewer than 30 observations
+levels_to_group <- names(borough_levels[borough_levels < 50])
+
+# Create a new factor with 'Other' level for levels with fewer than 30 observations
+dat$borough_grouped <- fct_collapse(dat$borough, Other = levels_to_group)
+
+# Print the updated 'borough' factor variable
+cat("Original 'borough' factor variable:\n")
+table(dat$borough)
+
+cat("\n'borough' factor variable with 'Other' level:\n")
+table(dat$borough_grouped)
+```
+# Variable Selection 
+
+## Cross-validated MSE
+
+```{r message=FALSE, warning=FALSE}
+# Create a linear regression model using caret and perform cross-validation
+ctrl <- trainControl(method = "cv", number = 10)
+model <- train(acc ~., data = dat, method = "lm", trControl = ctrl)
+
+# Print the cross-validated results
+print(model)
+
+# Show the resampled metrics: 
+print(model$resample)
+```
+
+
+## Stepwise Selection
+
+```{r message=FALSE, warning=FALSE}
+# Create relevant interactions
+initial_model <- lm(acc ~ . 
+                    + month * cli
+                    + month * cri
+                    + month * cti
+                    + month * ln_cli
+                    + month * ln_cri
+                    + month * ln_cti
+                    + dow * cli
+                    + dow * cri
+                    + dow * cti
+                    + dow * ln_cli
+                    + dow * ln_cri
+                    + dow * ln_cti
+                    , data = dat)
+
+#initial_model <- lm(acc ~ . , data = dat)
+
+# Perform stepwise feature selection with interactions using AIC
+final_model <- stepAIC(initial_model, direction = "both", k = log(nrow(dat)))
+
+# Display the summary of the final model
+summary(final_model)
+
+# Best BIC found so far is 3576.66 using stepwise selection
+# Final model:
+
+#lm(formula = acc ~ x + fi + fri + cli + cti + ln_pi + ln_fri + 
+#    ln_cri + ln_cti + tot_crossw + median + green_stra + half_phase + 
+#    north_veh + commercial + ln_distdt + missing_date_ind + dow + 
+#    parking + cti:dow, data = dat)
+```
+
+Performance measures collected were retrieved at a specfic time of the year. This may affect the impact of those variables. Create interaction.
+
+
+## Lasso Variable Selection 
+
+```{r message=FALSE, warning=FALSE}
+# Combine the response and predictor variables into a matrix
+X <- model.matrix(acc ~ ., data = dat)[, -1]  # RemoAve intercept column
+y <- dat$acc
+
+# Set up a Lasso model with cross-validation
+lasso_cv_model <- cv.glmnet(X, y, alpha = 1)  # alpha = 1 for Lasso
+
+# Plot the cross-validated mean squared error (CV MSE) as a function of log(lambda)
+plot(lasso_cv_model)
+```
+
+
+```{r}
+# Identify the lambda value that minimizes the CV MSE
+best_lambda <- lasso_cv_model$lambda.min
+
+cat("Selected Lambda (lambda.min):", lasso_cv_model$lambda.min, "\n")
+cat("Cross-validated Mean Squared Error (CV MSE):", min(lasso_cv_model$cvm), "\n")
+
+# Fit the final Lasso model with the selected lambda
+final_lasso_model <- glmnet(X, y, alpha = 1, lambda = best_lambda)
+
+# Extract coefficients from the final model
+selected_features <- coef(final_lasso_model)
+
+# Display the selected features
+print(selected_features)
+
+# MSE on cross validation is 6.7
+```
+
+
+
+## Group-Lasso 
+
+
+$$
+\begin{aligned}
+\hat{\beta} &= \arg\min_{\beta} \left\{ \sum_{i=1}^{n} (y_i - (\beta_0 + \beta^T x_i))^2 + \lambda \sum_{\ell=1}^{L} \sqrt{p_{\ell}} \left( \sum_{j \in G_{\ell}} \beta_j^2 \right)^{\frac{1}{2}}   \right\} 
+\end{aligned}
+$$
+
+
+```{r}
+# Reload the data and perform cleaning
+dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
+dat <- f_clean_data(dat, drop_borough = TRUE , drop_year = TRUE)
+
+# All the variables should go into the dummies, except `acc`
+all_vars <- setdiff(colnames(dat), "acc")
+
+# Create a version with dummies
+dat_dum <- f_convert_to_dummies(dat, all_vars)
+
+# Reassign the target variable
+target <- dat$acc
+
+# Preview the data
+head(dat_dum)
+```
+
+```{r}
+paste(colnames(dat_dum))
+```
+
+
+```{r}
+# Load the 'grpreg' library
+library(grpreg)
+
+# Define the 'group' vector for grpreg based on the structure of dat_dum
+group <- c(
+  1:33,             # Variables 1 to 33
+  rep(34, 3),       # Variables 34, 35, and 36
+  rep(37, 2),       # Variables 37 and 38
+  39:48,            # Variables 39 to 48
+  rep(49, 10),      # Variables 49 to 58
+  rep(59, 8),       # Variables 59 to 66
+  rep(67, 2),       # Variables 67 and 68
+  69:73,            # Variables 69 to 73
+  74:83,            # Variables 74 to 83
+  84:86,            # Variables 84 to 86
+  87:98             # Variables 87 to 98
+)
+
+# Set a random seed for reproducibility
+set.seed(14273)
+
+# Fit a group lasso regression model
+grlassofit <- grpreg(dat_dum, target, group, penalty = "grLasso")
+
+# Plot the results of the group lasso regression
+plot(grlassofit)
+```
+```{r}
+# coef(grlassofit, s = 0.5)
+```
+
 
 
