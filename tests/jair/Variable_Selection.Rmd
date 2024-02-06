@@ -1,6 +1,6 @@
 ---
 title: "Road Safety Pilot Project - Variable Selection"
-author: "Charles"
+author: "Charles & Hair"
 header-includes:
 - \usepackage{amsmath}
 - \usepackage{amssymb}

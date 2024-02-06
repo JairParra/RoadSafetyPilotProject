@@ -102,7 +102,7 @@ The function `f_clean_data` performs some basic data processing including NA cle
 dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
 
 # perform data cleaning 
-dat <- f_clean_data(dat)
+dat <- f_clean_data(dat, group_boroughs = FALSE)
 ```
 
 
@@ -135,10 +135,12 @@ num_vars <- c("fi", "fli", "fri", "fti", "cli",
               "north_veh", "north_ped", "east_veh", "east_ped",
               "south_veh", "south_ped", "west_veh", "west_ped", 
               "total_lane", "of_exclusi", "commercial",
-              "distdt", "ln_distdt", "traffic_10000", "ped_100")
+              "distdt", "ln_distdt"
+              # "traffic_10000", "ped_100" 
+              )
 
-# all covariates together 
-all_vars <- c(categ_vars, num_vars)
+# All the variables should go into the dummies, except `acc`
+all_vars <- setdiff(colnames(dat), "acc")
 ```
 
 
@@ -168,7 +170,7 @@ filtered_num_vars <- num_vars[!grepl("^ln_", num_vars) | num_vars == "acc"]
 
 # Selecting only the correct numerical variables including 'acc'
 numeric_dat <- dat %>%
-               select(all_of(filtered_num_vars))
+  dplyr::select(all_of(filtered_num_vars))
 
 # Standardize the numerical data (becomes a matrix)
 std_num_dat <- f_standardize_data(numeric_dat, auto=TRUE)
@@ -250,9 +252,9 @@ Produce visualizations
 ```{r, fig.width=11, fig.height=8}
 # Calculate total accidents per borough
 borough_accidents <- dat %>%
-  group_by(borough) %>%
-  summarize(total_accidents = sum(acc, na.rm = TRUE)) %>%
-  arrange(desc(total_accidents))
+  dplyr::group_by(borough) %>%
+  dplyr::summarize(total_accidents = sum(acc, na.rm = TRUE)) %>%
+  dplyr::arrange(desc(total_accidents))
 
 # Calculate the median and mean number of accidents
 median_accidents <- median(borough_accidents$total_accidents, na.rm = TRUE)
@@ -284,23 +286,17 @@ ggplot(borough_accidents, aes(
 ## Aggregated Number of Accidents Month by Month (misleading)
 
 ```{r}
-# Convert the date column to Date type
-dat_plt <- dat %>% filter(!is.na(date_))  # Exclude rows with NA in date_plot
-
-# Extract month part from the date (ignoring the year)
-dat_plt$month_only <- format(dat_plt$date_, "%m")
-
 # Calculate average accidents per month
-average_monthly_accidents <- dat_plt %>%
-  group_by(month_only) %>%
-  summarise(average_accidents = mean(acc, na.rm = TRUE)) %>%
-  arrange(month_only)
+average_monthly_accidents <- dat %>%
+  dplyr::group_by(month) %>%
+  dplyr::summarise(average_accidents = mean(acc, na.rm = TRUE)) %>%
+  dplyr::arrange(month)
 
 # Create a gradient of blues
 blue_gradient <- scale_fill_gradient(low = "lightblue", high = "darkblue")
 
 # Bar Chart of Average Accidents by Month with gradient fill
-ggplot(average_monthly_accidents, aes(x = month_only, y = average_accidents, fill = average_accidents)) +
+ggplot(average_monthly_accidents, aes(x = month, y = average_accidents, fill = average_accidents)) +
   geom_bar(stat = "identity") +
   ggtitle("Estimated Average Number of Accidents by Month") +
   xlab("Month") +
@@ -308,121 +304,41 @@ ggplot(average_monthly_accidents, aes(x = month_only, y = average_accidents, fil
   scale_x_discrete(labels = c('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   blue_gradient
-
-rm(dat_plt); gc(); # Remove temporary data frame and run garbage collector
 ```
 
 ## Top and Bottom 10 Intersections with Most Accidents
 
 ```{r}
+# Assuming 'dat' and 'inter_names' are your dataframes
+# Join 'dat' with 'inter_names' to include 'rue_1' and 'rue_2' based on 'int_no'
+dat_with_inter_names <- dplyr::left_join(dat, inter_names, by = "int_no")
+
 # Calculate total accidents per intersection
-intersection_accidents <- dat %>%
-  group_by(int_no, rue_1, rue_2) %>%
-  summarise(total_accidents = sum(acc, na.rm = TRUE), .groups = 'drop') %>%
-  arrange(desc(total_accidents))
+intersection_accidents <- dat_with_inter_names %>%
+  dplyr::group_by(int_no, rue_1, rue_2) %>%
+  dplyr::summarise(total_accidents = sum(acc, na.rm = TRUE), .groups = 'drop') %>%
+  dplyr::arrange(dplyr::desc(total_accidents))
 
 # Extract the top 10 intersections
 top_intersections <- head(intersection_accidents, 10)
 
 # Create a factor variable for accident ranges
-top_intersections$accident_range <- cut(top_intersections$total_accidents,
-                                        breaks = quantile(top_intersections$total_accidents, 
-                                                          probs = seq(0, 1, length.out = 5), na.rm = TRUE),
-                                        include.lowest = TRUE, labels = FALSE)
+top_intersections$accident_range <- cut(
+  top_intersections$total_accidents,
+  breaks = quantile(top_intersections$total_accidents, probs = seq(0, 1, length.out = 5), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = FALSE
+)
 
-# Plotting the top 20 intersections with gradient fill
-ggplot(top_intersections, aes(x = reorder(paste(rue_1, rue_2), total_accidents), y = total_accidents, fill = factor(accident_range))) +
+# Plotting the top 10 intersections with gradient fill
+ggplot(top_intersections, aes(x = reorder(paste(rue_1, rue_2, sep = " & "), -total_accidents), y = total_accidents, fill = factor(accident_range))) +
   geom_bar(stat = "identity") +
   scale_fill_brewer(palette = "Blues", direction = 1) +
-  ggtitle("Top 20 Intersections with Most Accidents") +
+  ggtitle("Top 10 Intersections with Most Accidents") +
   xlab("Intersection") +
   ylab("Number of Accidents") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.position = "none") +  # Remove the legend
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   coord_flip()  # Flip coordinates for horizontal layout
+
+# Note: Adjusted to "Top 10" as per the actual data extraction in the code.
 ```
-
-
-## Cumulative Number of Boroughs through time (drop?)
-
-```{r}
-library(ggplot2)
-library(dplyr)
-library(lubridate)
-
-# Convert the date column to Date type
-dat$date_plot <- dmy(dat$date_)
-
-# Arrange data by date
-dat <- dat %>%
-  arrange(date_plot)
-
-# Calculate the cumulative number of accidents
-dat$cumulative_acc <- cumsum(dat$acc)
-
-# Plotting the cumulative number of accidents over time
-ggplot(dat, aes(x = date_plot, y = cumulative_acc)) +
-  geom_line() +
-  labs(title = "Cumulative Number of Accidents Over Time",
-       x = "Date",
-       y = "Cumulative Accidents") +
-  theme_minimal()
-```
-```{r, fig.width=11, fig.height=8}
-# Calculate the cumulative number of accidents per borough
-borough_accidents <- dat %>%
-  group_by(borough, date_plot) %>%
-  summarise(daily_acc = sum(acc), .groups = 'drop') %>%
-  arrange(borough, date_plot) %>%
-  group_by(borough) %>%
-
-  mutate(cumulative_acc = cumsum(daily_acc))
-# Plotting time series for each borough
-ggplot(borough_accidents, aes(x = date_plot, y = cumulative_acc, color = borough)) +
-  geom_line() +
-  labs(title = "Cumulative Number of Accidents by Borough Over Time",
-       x = "Date",
-       y = "Cumulative Accidents",
-       color = "Borough") +
-  theme_minimal() +
-  theme(legend.position = "bottom") + 
-  guides(color = guide_legend(byrow = TRUE, ncol = 3))
-
-```
-```{r, fig.width=11, fig.height=12}
-# Calculate the cumulative number of accidents per borough
-borough_accidents <- dat %>%
-  group_by(borough, date_plot) %>%
-  summarise(daily_acc = sum(acc), .groups = 'drop') %>%
-  arrange(borough, date_plot) %>%
-  group_by(borough) %>%
-  mutate(cumulative_acc = cumsum(daily_acc))
-
-# Calculate the mean and median of cumulative accidents across boroughs for each date
-borough_stats <- borough_accidents %>%
-  group_by(date_plot) %>%
-  summarise(mean_cumulative_acc = mean(cumulative_acc), 
-            median_cumulative_acc = median(cumulative_acc))
-
-# Plotting time series for each borough, with mean and median lines
-ggplot() +
-  geom_line(data = borough_accidents, aes(x = date_plot, y = cumulative_acc, color = borough)) +
-  geom_line(data = borough_stats, aes(x = date_plot, y = mean_cumulative_acc), color = "black", linetype = "dashed") +
-  # geom_line(data = borough_stats, aes(x = date_plot, y = median_cumulative_acc), color = "grey", linetype = "dotted") +
-  labs(title = "Cumulative Number of Accidents by Borough Over Time",
-       x = "Date",
-       y = "Cumulative Accidents",
-       color = "Borough") +
-  theme_minimal() +
-  theme(legend.position = "bottom") +
-  guides(color = guide_legend(byrow = TRUE, ncol = 3))
-
-```
-
-
-
-
-
-
-
-

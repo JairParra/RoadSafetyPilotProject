@@ -84,7 +84,7 @@ f_compute_correlations <- function(df, target_var, filtered_num_vars = filtered_
   
   # Selecting only the correct numerical variables
   numeric_dat <- df %>%
-    select(all_of(filtered_num_vars))
+    dplyr::select(all_of(filtered_num_vars))
   
   # Standardize the numerical data
   std_dat <- f_standardize_data(numeric_dat, auto=TRUE)

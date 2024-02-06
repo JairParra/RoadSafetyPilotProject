@@ -141,15 +141,24 @@ f_group_borough = function(df, n){
   return(df)
 }
 
+
 # Function to clean the data, including NA cleaning, removing irrelevant columns,
 # 
 # Args: 
+#   group_boroughs: If TRUE, group boroughs with fewer than 50 observations.
+#   drop_borough: If TRUE, drop the original 'borough' column.
+#   drop_year: If TRUE, drop the 'year' column.
+#   numerical_categories: If TRUE, convert positive integer variables to factors.
+#   standarize: If TRUE, standardize the numerical variables.
 # 
 # Returns: 
-f_clean_data <- function(df, create_dummies=FALSE, 
+f_clean_data <- function(df, 
                          group_boroughs=TRUE, 
                          drop_borough=FALSE,
-                         drop_year=FALSE) {
+                         drop_year=FALSE, 
+                         numerical_categories=FALSE, 
+                         standarize=FALSE
+                         ) {
   
   # Correct names mapping
   correct_names <- list(
@@ -190,6 +199,9 @@ f_clean_data <- function(df, create_dummies=FALSE,
       return(name)
     }
   }
+  
+  # 0. Extract the intersection ids into a vector
+  int_no <- df$int_no
   
   # 1. Remove specified columns
   df <- df[ , !(names(df) %in% c("street_1", "street_2", "X", "X.1",
@@ -260,14 +272,28 @@ f_clean_data <- function(df, create_dummies=FALSE,
   }
   
   # 13. Convert positive integer variables to factors (as better representation)
-  categ_vars <- c(
-    "number_of_", "total_lane", "commercial", "year"
-  )
-  for (var in categ_vars) {
-    if(var %in% names(df)){
-      df[[var]] <- as.factor(df[[var]])
+  if(numerical_categories){
+    
+    # specify numeric covariates to convert to factors
+    categ_vars <- c(
+      "number_of_", "total_lane", "commercial"
+    )
+    
+    # convert each of the variables as factors.
+    for (var in categ_vars) {
+      if(var %in% names(df)){
+        df[[var]] <- as.factor(df[[var]])
+      }
     }
   }
+  
+  # 14. Standarize the numerical variables
+  if(standarize){
+    df <- f_standardize_data(df, auto = TRUE)
+  }
+  
+  # 15. Re-add the int_no from the original dataframe as a column 
+  df$int_no = int_no
   
   return(df)
 }
