@@ -79,15 +79,28 @@ f_convert_to_dummies <- function(df, all_vars) {
 
 
 # Function to compute different correlation measures
-f_compute_correlations <- function(df, target_var, filtered_num_vars = filtered_num_vars) {
+f_compute_correlations <- function(df, 
+                                   target_var, 
+                                   standarize = FALSE, 
+                                   filtered_num_vars = NULL ) {
   require("dplyr")
   
   # Selecting only the correct numerical variables
-  numeric_dat <- df %>%
-    dplyr::select(all_of(filtered_num_vars))
+  if(!is.null(filtered_num_vars)) {
+    numeric_dat <- df %>%
+      dplyr::select(all_of(filtered_num_vars))
+  } else {
+    numeric_dat <- df %>%
+      dplyr::select_if(is.numeric)
+  }
   
   # Standardize the numerical data
-  std_dat <- f_standardize_data(numeric_dat, auto=TRUE)
+  if(standarize){
+    std_dat <- f_standardize_data(numeric_dat, auto=TRUE)
+  }
+  else{ 
+    std_dat <- numeric_dat  
+  }
   
   # Convert the target variable to a matrix with the same number of rows
   target <- matrix(df[[target_var]], nrow = nrow(std_dat), ncol = 1)

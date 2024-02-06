@@ -107,6 +107,7 @@ summary(dat)
 # Display frequency table for the 'number_of_' column
 table(dat$number_of_)
 ```
+
 ```{r}
 # Display frequency table for the 'all_pedest' column
 table(dat$all_pedest)
@@ -207,7 +208,7 @@ initial_model <- lm(acc ~ .
 #initial_model <- lm(acc ~ . , data = dat)
 
 # Perform stepwise feature selection with interactions using AIC
-final_model <- stepAIC(initial_model, direction = "both", k = log(nrow(dat)))
+final_model <- stepAIC(initial_model, trace=FALSE, direction = "both", k = log(nrow(dat)))
 
 # Display the summary of the final model
 summary(final_model)
@@ -272,8 +273,20 @@ $$
 
 ```{r}
 # Reload the data and perform cleaning
-dat <- read.csv(here("data_raw", "data_final.csv"), sep=";")
-dat <- f_clean_data(dat, drop_borough = TRUE , drop_year = TRUE)
+dat_orig <- read.csv(here("data_raw", "data_final.csv"), sep=";")
+
+# Clean the data
+dat <- f_clean_data(dat_orig, 
+                    group_boroughs = TRUE, 
+                    drop_borough=TRUE, 
+                    drop_year=TRUE, 
+                    standarize = TRUE,
+                    numerical_categories = FALSE) # integer-based values
+
+# Drop the raw data object 
+rm(dat_orig); gc(verbose=FALSE);
+
+## Create an additional version which contains dummies instead of factors 
 
 # All the variables should go into the dummies, except `acc`
 all_vars <- setdiff(colnames(dat), "acc")
@@ -294,35 +307,30 @@ paste(colnames(dat_dum))
 
 
 ```{r}
-# Load the 'grpreg' library
-library(grpreg)
-
-# Define the 'group' vector for grpreg based on the structure of dat_dum
+# Redefine the 'group' vector for grpreg based on the updated structure of dat_dum
 group <- c(
-  1:33,             # Variables 1 to 33
-  rep(34, 3),       # Variables 34, 35, and 36
-  rep(37, 2),       # Variables 37 and 38
-  39:48,            # Variables 39 to 48
-  rep(49, 10),      # Variables 49 to 58
-  rep(59, 8),       # Variables 59 to 66
-  rep(67, 2),       # Variables 67 and 68
-  69:73,            # Variables 69 to 73
-  74:83,            # Variables 74 to 83
-  84:86,            # Variables 84 to 86
-  87:98             # Variables 87 to 98
+  1:45,                 # Variables 1 to 45 are individual
+  rep(46, 2),           # Variables 46 and 47 for 'parking'
+  48:52,                # Variables 48 to 52 are individual
+  rep(53, 11),          # Variables 53 to 63 for 'month'
+  rep(64, 6),           # Variables 64 to 69 for 'dow'
+  rep(70, 12)           # Variables 70 to 81 for 'borough'
 )
 
-# Set a random seed for reproducibility
-set.seed(14273)
+# Note: Adjust the last group number based on actual variable indices if necessary
 
-# Fit a group lasso regression model
-grlassofit <- grpreg(dat_dum, target, group, penalty = "grLasso")
+# Continue with your existing code for fitting the group lasso model
+set.seed(14273)  # Ensure reproducibility
 
-# Plot the results of the group lasso regression
+# Assuming 'dat_dum' is your predictors and 'target' is your response variable
+# Fit a group lasso regression model using the corrected 'group' vector
+grlassofit <- grpreg(X = dat_dum, y = target, group = group, penalty = "grLasso")
+
+# Plot the results
 plot(grlassofit)
 ```
 ```{r}
-# coef(grlassofit, s = 0.5)
+coef(grlassofit, s = 0.5)
 ```
 
 

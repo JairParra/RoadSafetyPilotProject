@@ -366,8 +366,74 @@ selected_covariates$rf_importance <- selected_variables
 print(selected_covariates$rf_importance)
 ```
 
-## Correlation Importance 
+## Correlation Importance (numerical only)
 
+
+```{r}
+# subset only the correct numerical variables
+numerical_dat <- dat[, sapply(dat, is.numeric)]
+numerical_dat <- numerical_dat[, !names(numerical_dat) %in% c('int_no')]
+
+# Compute correlations
+correlations_with_acc <- f_compute_correlations(numerical_dat, "acc", standarize = FALSE)
+correlations_with_acc <- correlations_with_acc[rownames(correlations_with_acc) != "acc", ]
+
+# Convert row names to a column
+correlations_with_acc <- correlations_with_acc %>% rownames_to_column(var = "variable")
+
+# Identifying the top n most positively and negatively correlated variables
+top_n = 50
+top_positively_correlated <- correlations_with_acc %>% 
+                             arrange(desc(spearman)) %>%
+                             head(top_n+1)
+
+top_negatively_correlated <- correlations_with_acc %>% 
+                             arrange(spearman) %>%
+                             head(top_n+1)
+
+
+# Filter out rows with negative correlation in positive correlated, and vice versa
+top_positively_correlated <- top_positively_correlated[top_positively_correlated$spearman > 0, ]
+top_negatively_correlated <- top_negatively_correlated[top_negatively_correlated$spearman < 0, ]
+
+# filter the target variable out of the correlations 
+top_positively_correlated <- top_positively_correlated[-1, ]
+top_negatively_correlated <- top_negatively_correlated[-1, ]
+
+# reset the index of both corr tables
+rownames(top_positively_correlated) <- seq(1, nrow(top_positively_correlated))
+rownames(top_negatively_correlated) <- seq(1, nrow(top_negatively_correlated))
+
+# Add a column containing the description of the variables
+top_positively_correlated$description <- sapply(top_positively_correlated$variable, 
+                                                function(x) f_get_description(x, varnames_dict))
+top_negatively_correlated$description <- sapply(top_negatively_correlated$variable, 
+                                                function(x) f_get_description(x, varnames_dict))
+
+# Convert the description column to a character vector if it's not already
+top_positively_correlated$description <- as.character(top_positively_correlated$description)
+top_negatively_correlated$description <- as.character(top_negatively_correlated$description)
+
+# Presenting the tables
+print(top_positively_correlated)
+print(top_negatively_correlated)
+```
+
+Finally,we perform variable selection with respect to the top correlated (in absolute value) variables which have at least 30% Spearman correlation with the target variable `acc`.  
+
+```{r}
+# Combine the positively and negatively correlated variables into one data frame
+combined_correlations <- rbind(top_positively_correlated, top_negatively_correlated)
+
+# Filter for variables with an absolute Spearman correlation of at least 30%
+significant_correlations <- combined_correlations[abs(combined_correlations$spearman) >= 0.3, ]
+
+# Extract the variable names into the selected_covariates list
+selected_covariates$spearman <- significant_correlations$variable
+
+# Print the selected covariates
+print(selected_covariates)
+```
 
 
 
