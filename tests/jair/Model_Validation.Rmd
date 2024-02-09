@@ -145,7 +145,7 @@ In this section to keep it short, we will perform variable selection using the f
 - Stepwise with AIC/BIC 
 - Lasso selection
 - RF Importance Selection
-- Top Spearman-correlated covariates with  acc 
+- Top Spearman-correlated covariates with acc 
 
 
 ### Train-validation split 
@@ -426,7 +426,7 @@ Finally,we perform variable selection with respect to the top correlated (in abs
 combined_correlations <- rbind(top_positively_correlated, top_negatively_correlated)
 
 # Filter for variables with an absolute Spearman correlation of at least 30%
-significant_correlations <- combined_correlations[abs(combined_correlations$spearman) >= 0.3, ]
+significant_correlations <- combined_correlations[abs(combined_correlations$spearman) >= 0.25, ]
 
 # Extract the variable names into the selected_covariates list
 selected_covariates$spearman <- significant_correlations$variable
@@ -435,9 +435,26 @@ selected_covariates$spearman <- significant_correlations$variable
 print(selected_covariates)
 ```
 
+# Forecasting 
+
+Based on the selected variables, we would like to select the "best" model by fitting a model again to the training data 
+
+1. **Stepwise variables:** Linear/Ridge Regression 
+2. **Lasso variables:** Linear/Lasso Regression
+3. **Random Forest Importance variables:** Random Forest Model
+4. **Spearman Correlation variables:** Linear/Ridge Regression
+5. **No selection:** This will be used for pure random forest on top. 
+
+We will then compare the performance of the models on the validation set.
 
 
+## Stepwise Variables Modelling
 
+
+## Lasso Variables Modelling 
+
+
+## Spearman Based Variables 
 
 
 

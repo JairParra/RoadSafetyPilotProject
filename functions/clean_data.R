@@ -246,7 +246,7 @@ f_clean_data <- function(df,
   # 7. Create an indicator variable for NA's
   df$missing_date_ind = factor(ifelse(df$date_ == "",1,0))
   
-  # 8. Perform KNNM imputation for 'date_'
+  # 8. Perform KNN imputation for 'date_'
   df <- f_knn_date_imputation(df, numeric_vars)
   
   # 9. Extract time variables
