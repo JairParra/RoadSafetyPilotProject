@@ -552,6 +552,31 @@ model_performance <- rbind(model_performance, list(Model_Name = "RandomForest", 
 
 ```
 
+## Tuned RF
+
+```{r}
+ctrl <- trainControl(method = "cv", number = 5, verbose=TRUE)
+
+grid <- expand.grid(.mtry=c(5:7))
+
+# Perform grid search
+rf_model <- train(acc ~ ., data = dat_train, method = "rf",
+                  trControl = ctrl, tuneGrid = grid,
+                  nodesize = 5,ntree = 500)
+
+plot(rf_model)
+
+# Make predictions
+predictions <- predict(rf_model, newdata = dat_val)
+mse <- mean((predictions - dat_val$acc)^2)
+print(mse)
+
+model_performance <- rbind(model_performance, list(Model_Name = "Tuned RF", MSE = mse))
+
+```
+print(model_performance)
+
+
 
 ## Spearman Based Variables 
 
