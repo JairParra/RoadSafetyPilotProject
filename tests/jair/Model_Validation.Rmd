@@ -138,6 +138,8 @@ head(dat)
 head(dat_dum)
 ```
 
+
+
 ## Variable Selection 
 
 In this section to keep it short, we will perform variable selection using the following methods: 
@@ -212,7 +214,7 @@ initial_model <- lm(acc ~ .
                     + dow * ln_cli
                     + dow * ln_cri
                     + dow * ln_cti
-                    
+
                     # Traffic Flow and Pedestrian Protection Measures
                     + fi * any_ped_pr
                     + pi * lt_protect
@@ -220,29 +222,29 @@ initial_model <- lm(acc ~ .
                     + pi * lt_prot_re
                     + fi * ped_countd
                     + pi * curb_exten
-                    
+
                     # Road Characteristics and Safety Measures
                     + median * any_ped_pr
                     + any_exclus * lt_protect
                     + tot_road_w * curb_exten
-                    
+
                     # Directional Traffic Flow with Specific Safety Measures
                     + north_veh * half_phase
                     + east_veh * ped_countd
                     + south_veh * green_stra
                     + west_veh * any_ped_pr
-                    
+
                     # Pedestrian and Vehicle Flow Interactions
                     + pi * fi
                     + north_ped * north_veh
                     + east_ped * east_veh
                     + south_ped * south_veh
                     + west_ped * west_veh
-                    
+
                     # Distance from Downtown and Safety Measures
                     + ln_distdt * any_ped_pr
                     + distdt * lt_protect
-                    
+
                     # Temporal Factors and Traffic Flow
                     + month * fi
                     + dow * pi
@@ -435,7 +437,8 @@ selected_covariates$spearman <- significant_correlations$variable
 print(selected_covariates)
 ```
 
-# Forecasting 
+
+# Prediction 
 
 Based on the selected variables, we would like to select the "best" model by fitting a model again to the training data 
 
@@ -447,14 +450,121 @@ Based on the selected variables, we would like to select the "best" model by fit
 
 We will then compare the performance of the models on the validation set.
 
+```{r}
+# Create a dataframe to store performances
+model_performance <- data.frame(
+  Model_Name = character(), 
+  MSE = numeric()  
+)
+
+```
+
+## Benchmark 
+
+```{r}
+# Predicting the mean of acc which is very close to zero
+mse = mean((mean(dat$acc) - dat_val$acc)^2)
+
+model_performance <- rbind(model_performance, list(Model_Name = "Baseline", MSE = mse))
+```
+
+## Basic Linear Regression with no variable selection
+
+```{r}
+lm_model <- lm(acc ~ ., data = dat_train)
+predictions <- predict(lm_model, newdata = dat_val)
+mse <- mean((predictions - dat_val$acc)^2)
+
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "OLS", MSE = mse))
+
+```
 
 ## Stepwise Variables Modelling
 
+```{r}
+# Test performance on validation set
+predictions <- predict(final_model, newdata = dat_val)
+actual <- dat_val$acc
+mse <- mean((predictions - actual)^2)
+
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise OLS", MSE = mse))
+
+```
 
 ## Lasso Variables Modelling 
+
+```{r}
+predictions <- predict(final_lasso_model, newx = model.matrix(acc ~ . - int_no, data = dat_val)[, -1], s = best_lambda)
+
+mse <- mean((predictions - dat_val$acc)^2)
+
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Simple Lasso", MSE = mse))
+```
+
+## Feature importance from RF
+```{r}
+X_train_rf <- as.matrix(dat_train[,selected_covariates$rf_importance])
+ridge_model <- cv.glmnet(X_train_rf, y_train, alpha = 0)
+
+# Print the selected lambda value
+best_lambda <- ridge_model$lambda.min
+cat("Selected lambda:", best_lambda, "\n")
+
+# Fit the final Ridge regression model using the selected lambda
+final_ridge_model <- glmnet(X_train_rf, y_train, alpha = 0, lambda = best_lambda)
+
+# Print the final Ridge regression model
+X_val <- as.matrix(dat_val[,selected_covariates$rf_importance])
+
+# Make predictions using the fitted Ridge model
+predictions <- predict(final_ridge_model, newx = X_val)
+
+mse <- mean((predictions - dat_val$acc)^2)
+
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Ridge+RF_feature", MSE = mse))
+```
+
+## Basic Random Forest
+
+```{r}
+rf_model <- randomForest(acc ~ ., data = dat_train)
+
+predictions <- predict(rf_model, newdata = dat_val)
+
+mse <- mean((predictions - dat_val$acc)^2)
+
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "RandomForest", MSE = mse))
+
+```
 
 
 ## Spearman Based Variables 
 
+```{r}
+lm_model <- lm(dat_train$acc ~ ., data =dat_train[,selected_covariates$spearman])
+predictions <- predict(lm_model, newdata = dat_val)
+mse <- mean((predictions - dat_val$acc)^2)
 
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "OLS+Corr", MSE = mse))
+```
+
+print(model_performance[order(-model_performance$MSE), ])
 
