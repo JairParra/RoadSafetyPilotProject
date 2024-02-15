@@ -75,7 +75,6 @@ source(here("functions", "install_packages.R"))
 
 ## Load the data 
 
-
 ```{r message=FALSE, warning=FALSE}
 ############################
 ### 1. Load the Raw Data ###
@@ -98,13 +97,13 @@ dat <- f_clean_data(dat_orig,
                     drop_year=TRUE, 
                     standarize = TRUE,
                     numerical_categories = FALSE) # integer-based values
-
-dat_v2 <- f_clean_data(dat_orig, 
-                    group_boroughs = TRUE, 
-                    drop_borough=TRUE, 
-                    drop_year=TRUE, 
-                    standarize = TRUE,
-                    numerical_categories = TRUE) # integer-based values
+# 
+# dat_v2 <- f_clean_data(dat_orig, 
+#                     group_boroughs = TRUE, 
+#                     drop_borough=TRUE, 
+#                     drop_year=TRUE, 
+#                     standarize = TRUE,
+#                     numerical_categories = TRUE) # integer-based values
 
 # Drop the raw data object 
 rm(dat_orig); gc(verbose=FALSE);
@@ -248,6 +247,18 @@ initial_model <- lm(acc ~ .
                     # Temporal Factors and Traffic Flow
                     + month * fi
                     + dow * pi
+
+                    # Interactions with Polynomial Terms
+                    + pi_squared * lt_protect
+                    + fi_squared * any_ped_pr
+                    + distdt_squared * green_stra
+                    + distdt_cubed * half_phase
+                    + tot_crossw_squared * lt_restric
+                    + avg_crossw_squared * ped_countd
+                    + tot_road_w_squared * curb_exten
+                    + fli_squared * east_veh
+                    + fri_squared * west_veh
+                    + fti_squared * north_veh
                     
                     # Ignore the index int_no
                     - int_no 
@@ -263,7 +274,7 @@ summary(final_model)
 ```
 
 ```{r}
-# Create a list object which will contain all the preditors for different methods 
+# Create a list object which will contain all the predictors for different methods 
 
 # Extract the model formula
 model_formula <- formula(final_model)
@@ -285,8 +296,8 @@ print(selected_covariates)
 
 ```{r}
 # Combine the response and predictor variables into a matrix for the training data
-X_train <- model.matrix(acc ~ . - int_no, data = dat_train)[, -1]  # Remove intercept column
-y_train <- dat_train$acc
+X_train <- model.matrix(acc ~ . - int_no, data = dat_dum_train)[, -1]  # Remove intercept column
+y_train <- dat_dum_train$acc
 
 # Set up a Lasso model with cross-validation on the training set
 lasso_cv_model <- cv.glmnet(X_train, y_train, alpha = 1)  # alpha = 1 for Lasso
@@ -329,7 +340,7 @@ predictors <- setdiff(colnames(dat), c("acc", "int_no"))
 
 # Train the random forest model
 set.seed(123)  # for reproducibility
-rf_model <- randomForest(acc ~ . - int_no, data = dat, importance = TRUE)
+rf_model <- randomForest(acc ~ . - int_no, data = dat_train, importance = TRUE)
 
 # Extract variable importance
 importance_rf <- importance(rf_model)
@@ -368,12 +379,11 @@ selected_covariates$rf_importance <- selected_variables
 print(selected_covariates$rf_importance)
 ```
 
-## Correlation Importance (numerical only)
-
+### Correlation Importance (numerical only)
 
 ```{r}
 # subset only the correct numerical variables
-numerical_dat <- dat[, sapply(dat, is.numeric)]
+numerical_dat <- dat_dum_train[, sapply(dat_dum_train, is.numeric)]
 numerical_dat <- numerical_dat[, !names(numerical_dat) %in% c('int_no')]
 
 # Compute correlations
@@ -428,7 +438,7 @@ Finally,we perform variable selection with respect to the top correlated (in abs
 combined_correlations <- rbind(top_positively_correlated, top_negatively_correlated)
 
 # Filter for variables with an absolute Spearman correlation of at least 30%
-significant_correlations <- combined_correlations[abs(combined_correlations$spearman) >= 0.25, ]
+significant_correlations <- combined_correlations[abs(combined_correlations$spearman) >= 0.15, ]
 
 # Extract the variable names into the selected_covariates list
 selected_covariates$spearman <- significant_correlations$variable
@@ -436,7 +446,6 @@ selected_covariates$spearman <- significant_correlations$variable
 # Print the selected covariates
 print(selected_covariates)
 ```
-
 
 # Prediction 
 
@@ -456,17 +465,19 @@ model_performance <- data.frame(
   Model_Name = character(), 
   MSE = numeric()  
 )
-
 ```
 
+
 ## Benchmark 
+
 
 ```{r}
 # Predicting the mean of acc which is very close to zero
 mse = mean((mean(dat$acc) - dat_val$acc)^2)
-
 model_performance <- rbind(model_performance, list(Model_Name = "Baseline", MSE = mse))
+model_performance
 ```
+
 
 ## Basic Linear Regression with no variable selection
 
@@ -479,7 +490,6 @@ print(paste("Mean Squared Error (MSE) on validation set:", mse))
 
 # Store the performance in dataset
 model_performance <- rbind(model_performance, list(Model_Name = "OLS", MSE = mse))
-
 ```
 
 ## Stepwise Variables Modelling
@@ -496,8 +506,14 @@ print(paste("Mean Squared Error (MSE):", mse))
 model_performance <- rbind(model_performance, list(Model_Name = "Stepwise OLS", MSE = mse))
 
 ```
+## Stepwise and Lasso 
+
+TODO
+
 
 ## Lasso Variables Modelling 
+
+Lasso + OLS 
 
 ```{r}
 predictions <- predict(final_lasso_model, newx = model.matrix(acc ~ . - int_no, data = dat_val)[, -1], s = best_lambda)
@@ -509,8 +525,10 @@ print(paste("Mean Squared Error (MSE):", mse))
 # Store the performance in dataset
 model_performance <- rbind(model_performance, list(Model_Name = "Simple Lasso", MSE = mse))
 ```
-
 ## Feature importance from RF
+
+- RF Features + Ridge Model 
+
 ```{r}
 X_train_rf <- as.matrix(dat_train[,selected_covariates$rf_importance])
 ridge_model <- cv.glmnet(X_train_rf, y_train, alpha = 0)
@@ -538,6 +556,10 @@ model_performance <- rbind(model_performance, list(Model_Name = "Ridge+RF_featur
 
 ## Basic Random Forest
 
+- No feature selection 
+- NO hyperparm tuning 
+- Just basics RF
+
 ```{r}
 rf_model <- randomForest(acc ~ ., data = dat_train)
 
@@ -549,10 +571,11 @@ print(paste("Mean Squared Error (MSE):", mse))
 
 # Store the performance in dataset
 model_performance <- rbind(model_performance, list(Model_Name = "RandomForest", MSE = mse))
-
 ```
 
 ## Tuned RF
+
+- Hyper tuned RF with basic features
 
 ```{r}
 ctrl <- trainControl(method = "cv", number = 5, verbose=TRUE)
@@ -572,10 +595,8 @@ mse <- mean((predictions - dat_val$acc)^2)
 print(mse)
 
 model_performance <- rbind(model_performance, list(Model_Name = "Tuned RF", MSE = mse))
-
 ```
 print(model_performance)
-
 
 
 ## Spearman Based Variables 
@@ -591,5 +612,14 @@ print(paste("Mean Squared Error (MSE) on validation set:", mse))
 model_performance <- rbind(model_performance, list(Model_Name = "OLS+Corr", MSE = mse))
 ```
 
+## XGBoost 
+
+### All performances 
+
+
+```{r}
 print(model_performance[order(-model_performance$MSE), ])
+```
+
+
 

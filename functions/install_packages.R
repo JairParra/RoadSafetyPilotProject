@@ -32,6 +32,7 @@ f_load_packages <- function() {
     "car", 
     "zoo", 
     "rockchalk", 
+    "xgboost", 
     "MASS", 
     "caret", 
     "glmnet",

@@ -18,10 +18,16 @@
 #   reverse: If TRUE, reverses the standardization. Defaults to FALSE.
 #   auto: If TRUE, automatically standardizes all numeric columns. Defaults to FALSE.
 #   cols: A vector of column names to standardize. Defaults to NULL.
+#   exclude: A vector of column names to exclude from standardization. Defaults to NULL.
 #
 # Returns:
 #   A data frame with standardized columns.
-f_standardize_data <- function(data, reverse = FALSE, auto = FALSE, cols = NULL) {
+f_standardize_data <- function(data, reverse = FALSE, auto = FALSE, cols = NULL, exclude=NULL) { 
+  # if exclude is not null, remove the columns from the list of columns to standardize
+  if(!is.null(exclude)){
+    cols = cols[!cols %in% exclude]
+  }
+  
   if (reverse) {
     if (is.null(cols)) {
       stop("Please specify the columns to reverse standardize.")
@@ -31,9 +37,10 @@ f_standardize_data <- function(data, reverse = FALSE, auto = FALSE, cols = NULL)
       mutate_at(vars(all_of(cols)), ~ . / attr(., "scaled:scale"))
   } else {
     if (auto) {
-      # Standardize all numeric columns
+      # Standardize all numeric columns, excluding specified ones
+      numeric_cols <- sapply(data, is.numeric) & !names(data) %in% exclude
       data %>% 
-        mutate_if(is.numeric, scale)
+        mutate_at(vars(names(which(numeric_cols))), scale)
     } else {
       if (is.null(cols)) {
         stop("Please specify the columns to standardize or set auto = TRUE.")
@@ -44,6 +51,7 @@ f_standardize_data <- function(data, reverse = FALSE, auto = FALSE, cols = NULL)
     }
   }
 }
+
 
 
 # Function to impute missing dates using KNN
@@ -137,6 +145,36 @@ f_group_borough = function(df, n){
   
   # Create a new factor with 'Other' level for levels with fewer than n observations
   df$borough_grouped <- fct_collapse(df$borough, Other = levels_to_group)
+  
+  return(df)
+}
+
+
+# Function to expand the data frame with polynomial features. 
+# 
+# Args: 
+#  df: A data frame.
+#
+# Returns: 
+#  A data frame with new polynomial features.
+expand_polynomial_features <- function(df) {
+  # Traffic Flow Variables
+  df$pi_squared <- df$pi^2
+  df$fi_squared <- df$fi^2
+  
+  # Distance from Downtown
+  df$distdt_squared <- df$distdt^2
+  df$distdt_cubed <- df$distdt^3
+  
+  # Crosswalk and Road Widths
+  df$tot_crossw_squared <- df$tot_crossw^2
+  df$avg_crossw_squared <- df$avg_crossw^2
+  df$tot_road_w_squared <- df$tot_road_w^2
+  
+  # Turning Flows
+  df$fli_squared <- df$fli^2
+  df$fri_squared <- df$fri^2
+  df$fti_squared <- df$fti^2
   
   return(df)
 }
@@ -289,11 +327,14 @@ f_clean_data <- function(df,
   
   # 14. Standarize the numerical variables
   if(standarize){
-    df <- f_standardize_data(df, auto = TRUE)
+    df <- f_standardize_data(df, auto = TRUE, exclude = c("int_no", "acc", "borough_grouped"))
   }
   
   # 15. Re-add the int_no from the original dataframe as a column 
   df$int_no = int_no
+  
+  # 16. Incorporate polynomial features 
+  df <- expand_polynomial_features(df)
   
   return(df)
 }

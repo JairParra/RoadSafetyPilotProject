@@ -1689,8 +1689,8 @@ dat_v2 &lt;- f_clean_data(dat_orig,
 # Drop the raw data object 
 rm(dat_orig); gc(verbose=FALSE);</code></pre>
 <pre><code>##           used  (Mb) gc trigger  (Mb) max used  (Mb)
-## Ncells 2730616 145.9    4309208 230.2  4309208 230.2
-## Vcells 4824679  36.9   10146329  77.5  8387175  64.0</code></pre>
+## Ncells 2731203 145.9    4309771 230.2  4309771 230.2
+## Vcells 4824231  36.9   10146329  77.5  8388323  64.0</code></pre>
 <pre class="r"><code>#################################
 ### 3. Cleate Dummies Version ###
 #################################
@@ -1830,7 +1830,7 @@ initial_model &lt;- lm(acc ~ .
                     + dow * ln_cli
                     + dow * ln_cri
                     + dow * ln_cti
-                    
+
                     # Traffic Flow and Pedestrian Protection Measures
                     + fi * any_ped_pr
                     + pi * lt_protect
@@ -1838,29 +1838,29 @@ initial_model &lt;- lm(acc ~ .
                     + pi * lt_prot_re
                     + fi * ped_countd
                     + pi * curb_exten
-                    
+
                     # Road Characteristics and Safety Measures
                     + median * any_ped_pr
                     + any_exclus * lt_protect
                     + tot_road_w * curb_exten
-                    
+
                     # Directional Traffic Flow with Specific Safety Measures
                     + north_veh * half_phase
                     + east_veh * ped_countd
                     + south_veh * green_stra
                     + west_veh * any_ped_pr
-                    
+
                     # Pedestrian and Vehicle Flow Interactions
                     + pi * fi
                     + north_ped * north_veh
                     + east_ped * east_veh
                     + south_ped * south_veh
                     + west_ped * west_veh
-                    
+
                     # Distance from Downtown and Safety Measures
                     + ln_distdt * any_ped_pr
                     + distdt * lt_protect
-                    
+
                     # Temporal Factors and Traffic Flow
                     + month * fi
                     + dow * pi
@@ -2410,8 +2410,8 @@ print(selected_covariates)</code></pre>
 ## [11] &quot;west_ped&quot;   &quot;tot_road_w&quot; &quot;fri&quot;        &quot;ln_fri&quot;     &quot;ln_fi&quot;     
 ## [16] &quot;fi&quot;</code></pre>
 </div>
-<div id="forecasting" class="section level1">
-<h1>Forecasting</h1>
+<div id="prediction" class="section level1">
+<h1>Prediction</h1>
 <p>Based on the selected variables, we would like to select the “best”
 model by fitting a model again to the training data</p>
 <ol style="list-style-type: decimal">
@@ -2426,14 +2426,195 @@ forest on top.</li>
 </ol>
 <p>We will then compare the performance of the models on the validation
 set.</p>
+<pre class="r"><code># Create a dataframe to store performances
+model_performance &lt;- data.frame(
+  Model_Name = character(), 
+  MSE = numeric()  
+)</code></pre>
+<div id="benchmark" class="section level2">
+<h2>Benchmark</h2>
+<pre class="r"><code># Predicting the mean of acc which is very close to zero
+mse = mean((mean(dat$acc) - dat_val$acc)^2)
+
+model_performance &lt;- rbind(model_performance, list(Model_Name = &quot;Baseline&quot;, MSE = mse))</code></pre>
+</div>
+<div id="basic-linear-regression-with-no-variable-selection" class="section level2">
+<h2>Basic Linear Regression with no variable selection</h2>
+<pre class="r"><code>lm_model &lt;- lm(acc ~ ., data = dat_train)
+predictions &lt;- predict(lm_model, newdata = dat_val)
+mse &lt;- mean((predictions - dat_val$acc)^2)
+
+print(paste(&quot;Mean Squared Error (MSE) on validation set:&quot;, mse))</code></pre>
+<pre><code>## [1] &quot;Mean Squared Error (MSE) on validation set: 0.60582603713514&quot;</code></pre>
+<pre class="r"><code># Store the performance in dataset
+model_performance &lt;- rbind(model_performance, list(Model_Name = &quot;OLS&quot;, MSE = mse))</code></pre>
+</div>
 <div id="stepwise-variables-modelling" class="section level2">
 <h2>Stepwise Variables Modelling</h2>
+<pre class="r"><code># Test performance on validation set
+predictions &lt;- predict(final_model, newdata = dat_val)</code></pre>
+<pre><code>## Warning in predict.lm(final_model, newdata = dat_val): prediction from
+## rank-deficient fit; attr(*, &quot;non-estim&quot;) has doubtful cases</code></pre>
+<pre class="r"><code>actual &lt;- dat_val$acc
+mse &lt;- mean((predictions - actual)^2)
+
+print(paste(&quot;Mean Squared Error (MSE):&quot;, mse))</code></pre>
+<pre><code>## [1] &quot;Mean Squared Error (MSE): 0.683419714650057&quot;</code></pre>
+<pre class="r"><code># Store the performance in dataset
+model_performance &lt;- rbind(model_performance, list(Model_Name = &quot;Stepwise OLS&quot;, MSE = mse))</code></pre>
 </div>
 <div id="lasso-variables-modelling" class="section level2">
 <h2>Lasso Variables Modelling</h2>
+<pre class="r"><code>predictions &lt;- predict(final_lasso_model, newx = model.matrix(acc ~ . - int_no, data = dat_val)[, -1], s = best_lambda)
+
+mse &lt;- mean((predictions - dat_val$acc)^2)
+
+print(paste(&quot;Mean Squared Error (MSE):&quot;, mse))</code></pre>
+<pre><code>## [1] &quot;Mean Squared Error (MSE): 0.594038997992569&quot;</code></pre>
+<pre class="r"><code># Store the performance in dataset
+model_performance &lt;- rbind(model_performance, list(Model_Name = &quot;Simple Lasso&quot;, MSE = mse))</code></pre>
+</div>
+<div id="feature-importance-from-rf" class="section level2">
+<h2>Feature importance from RF</h2>
+<pre class="r"><code>X_train_rf &lt;- as.matrix(dat_train[,selected_covariates$rf_importance])
+ridge_model &lt;- cv.glmnet(X_train_rf, y_train, alpha = 0)</code></pre>
+<pre><code>## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion
+
+## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion
+
+## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion
+
+## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion
+
+## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion
+
+## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion
+
+## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion
+
+## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion
+
+## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion
+
+## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion
+
+## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion</code></pre>
+<pre><code>## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion
+
+## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion
+
+## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion
+
+## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion
+
+## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion
+
+## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion
+
+## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion
+
+## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion
+
+## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion
+
+## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion</code></pre>
+<pre class="r"><code># Print the selected lambda value
+best_lambda &lt;- ridge_model$lambda.min
+cat(&quot;Selected lambda:&quot;, best_lambda, &quot;\n&quot;)</code></pre>
+<pre><code>## Selected lambda: 0.1037147</code></pre>
+<pre class="r"><code># Fit the final Ridge regression model using the selected lambda
+final_ridge_model &lt;- glmnet(X_train_rf, y_train, alpha = 0, lambda = best_lambda)</code></pre>
+<pre><code>## Warning in storage.mode(xd) &lt;- &quot;double&quot;: NAs introduced by coercion</code></pre>
+<pre class="r"><code># Print the final Ridge regression model
+X_val &lt;- as.matrix(dat_val[,selected_covariates$rf_importance])
+
+# Make predictions using the fitted Ridge model
+predictions &lt;- predict(final_ridge_model, newx = X_val)</code></pre>
+<pre><code>## Warning in cbind2(1, newx) %*% nbeta: NAs introduced by coercion</code></pre>
+<pre class="r"><code>mse &lt;- mean((predictions - dat_val$acc)^2)
+
+print(paste(&quot;Mean Squared Error (MSE):&quot;, mse))</code></pre>
+<pre><code>## [1] &quot;Mean Squared Error (MSE): 0.598984308763058&quot;</code></pre>
+<pre class="r"><code># Store the performance in dataset
+model_performance &lt;- rbind(model_performance, list(Model_Name = &quot;Ridge+RF_feature&quot;, MSE = mse))</code></pre>
+</div>
+<div id="basic-random-forest" class="section level2">
+<h2>Basic Random Forest</h2>
+<pre class="r"><code>rf_model &lt;- randomForest(acc ~ ., data = dat_train)
+
+predictions &lt;- predict(rf_model, newdata = dat_val)
+
+mse &lt;- mean((predictions - dat_val$acc)^2)
+
+print(paste(&quot;Mean Squared Error (MSE):&quot;, mse))</code></pre>
+<pre><code>## [1] &quot;Mean Squared Error (MSE): 0.5058380517639&quot;</code></pre>
+<pre class="r"><code># Store the performance in dataset
+model_performance &lt;- rbind(model_performance, list(Model_Name = &quot;RandomForest&quot;, MSE = mse))</code></pre>
+</div>
+<div id="tuned-rf" class="section level2">
+<h2>Tuned RF</h2>
+<pre class="r"><code>ctrl &lt;- trainControl(method = &quot;cv&quot;, number = 5, verbose=TRUE)
+
+grid &lt;- expand.grid(.mtry=c(5:7))
+
+# Perform grid search
+rf_model &lt;- train(acc ~ ., data = dat_train, method = &quot;rf&quot;,
+                  trControl = ctrl, tuneGrid = grid,
+                  nodesize = 5,ntree = 500)</code></pre>
+<pre><code>## + Fold1: mtry=5 
+## - Fold1: mtry=5 
+## + Fold1: mtry=6 
+## - Fold1: mtry=6 
+## + Fold1: mtry=7 
+## - Fold1: mtry=7 
+## + Fold2: mtry=5 
+## - Fold2: mtry=5 
+## + Fold2: mtry=6 
+## - Fold2: mtry=6 
+## + Fold2: mtry=7 
+## - Fold2: mtry=7 
+## + Fold3: mtry=5 
+## - Fold3: mtry=5 
+## + Fold3: mtry=6 
+## - Fold3: mtry=6 
+## + Fold3: mtry=7 
+## - Fold3: mtry=7 
+## + Fold4: mtry=5 
+## - Fold4: mtry=5 
+## + Fold4: mtry=6 
+## - Fold4: mtry=6 
+## + Fold4: mtry=7 
+## - Fold4: mtry=7 
+## + Fold5: mtry=5 
+## - Fold5: mtry=5 
+## + Fold5: mtry=6 
+## - Fold5: mtry=6 
+## + Fold5: mtry=7 
+## - Fold5: mtry=7 
+## Aggregating results
+## Selecting tuning parameters
+## Fitting mtry = 5 on full training set</code></pre>
+<pre class="r"><code>plot(rf_model)</code></pre>
+<p></p>
+<pre class="r"><code># Make predictions
+predictions &lt;- predict(rf_model, newdata = dat_val)
+mse &lt;- mean((predictions - dat_val$acc)^2)
+print(mse)</code></pre>
+<pre><code>## [1] 0.5129851</code></pre>
+<pre class="r"><code>model_performance &lt;- rbind(model_performance, list(Model_Name = &quot;Tuned RF&quot;, MSE = mse))</code></pre>
+<p>print(model_performance)</p>
 </div>
 <div id="spearman-based-variables" class="section level2">
 <h2>Spearman Based Variables</h2>
+<pre class="r"><code>lm_model &lt;- lm(dat_train$acc ~ ., data =dat_train[,selected_covariates$spearman])
+predictions &lt;- predict(lm_model, newdata = dat_val)
+mse &lt;- mean((predictions - dat_val$acc)^2)
+
+print(paste(&quot;Mean Squared Error (MSE) on validation set:&quot;, mse))</code></pre>
+<pre><code>## [1] &quot;Mean Squared Error (MSE) on validation set: 0.661553920996819&quot;</code></pre>
+<pre class="r"><code># Store the performance in dataset
+model_performance &lt;- rbind(model_performance, list(Model_Name = &quot;OLS+Corr&quot;, MSE = mse))</code></pre>
+<p>print(model_performance[order(-model_performance$MSE), ])</p>
 </div>
 </div>
 
