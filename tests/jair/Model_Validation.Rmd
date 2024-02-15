@@ -267,17 +267,17 @@ initial_model <- lm(acc ~ .
 
 
 # Perform stepwise feature selection with interactions using AIC
-final_model <- stepAIC(initial_model, direction = "both", k = log(nrow(dat_train)), trace=FALSE)
+stepwise_aic <- stepAIC(initial_model, direction = "both", k = 2, trace=FALSE)
 
 # Display the summary of the final model
-summary(final_model)
+summary(stepwise_aic)
 ```
 
 ```{r}
 # Create a list object which will contain all the predictors for different methods 
 
 # Extract the model formula
-model_formula <- formula(final_model)
+model_formula <- formula(stepwise_aic)
 
 # Extract terms from the formula
 model_terms <- labels(terms(model_formula))
@@ -286,7 +286,28 @@ model_terms <- labels(terms(model_formula))
 selected_vars <- model_terms[-1] # Removes the first element, which is the response variable 'acc'
 
 # Pack into a list under the key "stepwise_bic"
-selected_covariates <- list(stepwise_bic = selected_vars)
+selected_covariates <- list(stepwise_aic = selected_vars)
+
+# Print the list to see the selected variables
+print(selected_covariates)
+```
+## Stepwise BIC 
+
+```{r}
+# Perform stepwise feature selection with interactions using BIC
+stepwise_bic <- stepAIC(initial_model, direction = "both", k = log(nrow(dat_train)), trace=FALSE)
+
+# Extract the model formula
+model_formula <- formula(stepwise_bic)
+
+# Extract terms from the formula
+model_terms <- labels(terms(model_formula))
+
+# Since the first term is usually the response variable (left of ~), we remove it to get only predictors
+selected_vars <- model_terms[-1] # Removes the first element, which is the response variable 'acc'
+
+# Pack into a list under the key "stepwise_bic"
+selected_covariates$stepwise_bic <- selected_vars
 
 # Print the list to see the selected variables
 print(selected_covariates)
@@ -451,6 +472,11 @@ print(selected_covariates)
 
 Based on the selected variables, we would like to select the "best" model by fitting a model again to the training data 
 
+
+1. **Benchmark:** A model that predicts the mean of the target variable.
+2. **Basic Linear Regression:** A simple linear regression model with no variable selection.
+3. **Stepwise OLS:** A linear regression model with variable selection using stepwise regression.
+
 1. **Stepwise variables:** Linear/Ridge Regression 
 2. **Lasso variables:** Linear/Lasso Regression
 3. **Random Forest Importance variables:** Random Forest Model
@@ -482,36 +508,100 @@ model_performance
 ## Basic Linear Regression with no variable selection
 
 ```{r}
+# Fit linear regression model using all predictors
 lm_model <- lm(acc ~ ., data = dat_train)
+
+# Make predictions on the validation set
 predictions <- predict(lm_model, newdata = dat_val)
+
+# Calculate mean squared error
 mse <- mean((predictions - dat_val$acc)^2)
 
+# Print the mean squared error
 print(paste("Mean Squared Error (MSE) on validation set:", mse))
 
-# Store the performance in dataset
+# Store the model performance in dataset
 model_performance <- rbind(model_performance, list(Model_Name = "OLS", MSE = mse))
 ```
 
-## Stepwise Variables Modelling
+```{r}
+model_performance
+```
+
+## Stepwise AIC OLS
 
 ```{r}
 # Test performance on validation set
-predictions <- predict(final_model, newdata = dat_val)
+predictions <- predict(stepwise_aic, newdata = dat_val)
 actual <- dat_val$acc
 mse <- mean((predictions - actual)^2)
 
 print(paste("Mean Squared Error (MSE):", mse))
 
 # Store the performance in dataset
-model_performance <- rbind(model_performance, list(Model_Name = "Stepwise OLS", MSE = mse))
-
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise-AIC OLS", MSE = mse))
 ```
-## Stepwise and Lasso 
 
-TODO
+```{r}
+model_performance
+```
 
 
-## Lasso Variables Modelling 
+## Stepwise AIC OLS
+
+```{r}
+# Test performance on validation set
+predictions <- predict(stepwise_bic, newdata = dat_val)
+actual <- dat_val$acc
+mse <- mean((predictions - actual)^2)
+
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise-BIC OLS", MSE = mse))
+```
+
+```{r}
+model_performance
+```
+
+
+## Stepwise-BIC and Lasso 
+
+```{r}
+# Create formula with interactions
+interaction_formula <- as.formula(paste("acc ~", paste(selected_covariates$stepwise_bic, collapse = " + ")))
+
+# Generate model matrix for train and val 
+model_matrix_train <- model.matrix(interaction_formula, data = dat_train)
+model_matrix_val <- model.matrix(interaction_formula, data = dat_val)
+
+# Extract response variable
+y <- dat_train$acc
+
+# Fit Lasso model
+lasso_model <- glmnet(model_matrix_train, y, alpha = 1)
+
+# Make predictions on the validation set
+predictions <- predict(lasso_model, newx =model_matrix_val)
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise Lasso", MSE = mse))
+```
+
+
+```{r}
+model_performance
+```
+
+
+## Lasso + OLS
 
 Lasso + OLS 
 
@@ -525,6 +615,8 @@ print(paste("Mean Squared Error (MSE):", mse))
 # Store the performance in dataset
 model_performance <- rbind(model_performance, list(Model_Name = "Simple Lasso", MSE = mse))
 ```
+
+
 ## Feature importance from RF
 
 - RF Features + Ridge Model 
