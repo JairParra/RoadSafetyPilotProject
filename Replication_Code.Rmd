@@ -45,36 +45,37 @@ knitr::knit_hooks$set(plot = my_plot_hook)
 ## Libraries 
 
 ```{r libraries, message=FALSE, warning=FALSE}
-# CRAN libraries
-library("sf") # temp
+# Needed to load custom scripts
 library("here")
-library("tidyr")
-library("dplyr")
-library("tibble")
-library("readxl")
-library("corrplot")
-library("lubridate")
-library("randomForest")
-library("ggmap") # temp 
-library("ggplot2")
-library("data.table")
-library("MASS")
-library("glmnet")
-library("caret")
-library("forcats")
-library("xgboost")
 
 # Custom scripts  
 source(here("functions", "utils.R"))
 source(here("functions", "clean_data.R"))
 source(here("functions", "install_packages.R"))
 
-# load packages if necessary 
-#f_load_packages()
+# the following function will try to install and load all the required
+# packages for this project. 
+f_load_packages()
 ```
 
 
-## Load the data 
+
+## On Execution time
+
+Due to the methodology employed and the number of models fit as well as several other procedures, running the whole script will take around ~10 minutes in total. 
+
+
+
+# Exploratory Data Analysis
+
+## Data Loading and Preparation 
+
+The following chunk of code will take care of the main steps: 
+
+1. Loading the data
+2. Data cleaning and preprocessing 
+3. Implementing the dummies version of the dataset, necessary for some of the models.
+4. Extracting relevant meta-data. 
 
 ```{r message=FALSE, warning=FALSE}
 ############################
@@ -92,22 +93,18 @@ inter_names <- subset(dat_orig, select = c(int_no, x, y, rue_1, rue_2))
 #########################
 
 # Create two clean versions of the data 
-dat <- f_clean_data(dat_orig, 
-                    group_boroughs = TRUE, 
-                    drop_borough=TRUE, 
-                    drop_year=TRUE, 
-                    standarize = TRUE,
-                    numerical_categories = FALSE) # integer-based values
-# 
-# dat_v2 <- f_clean_data(dat_orig, 
-#                     group_boroughs = TRUE, 
-#                     drop_borough=TRUE, 
-#                     drop_year=TRUE, 
-#                     standarize = TRUE,
-#                     numerical_categories = TRUE) # integer-based values
+dat <- f_clean_data(dat_orig,  # original data
+                    group_boroughs = TRUE, # Group the levels in the borough variable
+                    drop_borough=TRUE,  # If the borough levels were grouped, drop the original variable
+                    drop_year=TRUE,  # Drop the year variable, but weekly and monthly features are kept. 
+                    standarize = TRUE, # Standarize the numerical variables
+                    numerical_categories = FALSE) # Convert some integer-based variables to categorical 
 
-# Drop the raw data object 
-rm(dat_orig); gc(verbose=FALSE);
+# Create a simple version of the data for EDA visualization purposes
+dat_no_group <- f_clean_data(dat_orig, group_boroughs = FALSE)
+
+# # Drop the raw data object 
+# rm(dat_orig); gc(verbose=FALSE);
 
 #################################
 ### 3. Cleate Dummies Version ###
@@ -132,23 +129,332 @@ dat_dum$acc <- dat$acc
 result <- f_load_varnames(here("data_raw", "Dictionnaire_final.xlsx"))
 varnames <- result$varnames
 varnames_dict <- result$varnames_dict
+```
 
-# preview dat 
-head(dat)
-head(dat_dum)
+
+### Inspecting the raw data 
+
+We can preview our dataset, and see that there is a number of columns which are irrelevant, the names are corrupted, variable naming conventions are not clear, etc. 
+
+```{r}
+# Data before preprocessing or cleaning 
+head(dat_orig)
+```
+
+The borough names are not very clear and contain strange characters: 
+
+```{r}
+unique(dat_orig$borough)
+```
+
+
+```{r}
+str(dat_orig)
 ```
 
 
 
-## Variable Selection 
+- We can observe a number of irrelevant columns (e.g. `street_1`, `street_2`, `X`, `X.1`) that we will remove.
+- Also, the borough names contains typos, so we will also correct those to have consiten names.
+- We also observersome covariates are of the wrong type (e.g. categorical, numerical, etc.)
 
-In this section to keep it short, we will perform variable selection using the following methods: 
+All of these problems are addressed by the function `f_clean_data`, which does the follwoing: 
 
-- Stepwise with AIC/BIC 
-- Lasso selection
-- RF Importance Selection
-- Top Spearman-correlated covariates with acc 
+1. Remove a number of columns such that "street_1", "street_2", "X", "X.1", "int_no", 'rue_1', 'rue_2', "traffic_10000", "ped_100".
+2. **TODO** Complete. 
 
+
+### Meta-data
+
+We separate some meta-data from the main data for convenience: 
+
+```{r}
+head(inter_names)
+```
+
+### Data after cleaning 
+
+After cleaning and preprocessing, we end up with two versions of the clean dataset: 
+
+1. `dat`: The main version of the data, with the following characteristics: 
+    - Grouped boroughs
+    - Standarized numerical variables
+    - Removed irrelevant columns
+    - Removed the year variable
+    - Converted some integer-based variables to categorical
+    
+2. `dat_dum`: A version of the data with dummies instead of factors. 
+
+```{r}
+head(dat)
+head(dat_dum)
+```
+
+We can observe that the datatypes now are of the correct type for all variables, and the unique names of the borough have also been corrected (and grouped)
+
+```{r}
+str(dat)
+```
+
+
+```{r}
+unique(dat$borough)
+```
+The variable `Other` contains the boroughts which contained fewer observations (**TODO:** Name which boroughs were removed.)
+
+The dataset `dat_dum` is similar in nature, but contains only numerical variables, since the categorical variables have been converted to one-hot encoded vectors: 
+
+```{r}
+str(dat_dum)
+```
+
+
+## Correlation Analysis 
+
+We can study the correlation among numerical variables and the target `acc`, to get a good idea of potential predictors (this is worked more in depth in the **Variable Selection** section): 
+
+```{r}
+# Define the numerical variables from the dat dataset
+num_vars <- colnames(dat)[sapply(dat, is.numeric)]
+
+# Filter out 'ln_' prefixed variables from num_vars and ensure 'acc' is included
+filtered_num_vars <- num_vars[!grepl("^ln_", num_vars) | num_vars == "acc"]
+
+# Selecting only the correct numerical variables including 'acc'
+numeric_dat <- dat %>%
+  dplyr::select(all_of(filtered_num_vars))
+
+# Standardize the numerical data (becomes a matrix)
+std_num_dat <- f_standardize_data(numeric_dat, auto=TRUE)
+
+# Re-add the target variable 'acc' to the standardized data (matrix)
+std_num_dat <- cbind(std_num_dat, dat$acc)
+colnames(std_num_dat)[ncol(std_num_dat)] <- "acc"
+
+# Compute the correlation matrix
+cor_matrix <- cor(std_num_dat, use = "complete.obs", method="spearman")
+
+# Convert the correlation matrix to a long format
+cor_data <- as.data.frame(as.table(cor_matrix))
+
+# Plotting the correlation matrix
+ggplot(cor_data, aes(x = Var1, y = Var2, fill = Freq)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(fill = "Correlation", x = "", y = "", title = "Correlation Matrix of Numerical Variables")
+```
+
+
+Since the correlation matrix is hard to understand, we look to focus our attention on the most 
+linearly correlated covariates with the target variable `acc`. For this, we use three correlation metrics: Pearson, Spearman and Kendall. In particular, we use as a sorting criterion the Spearman correlation metric, which is the most robust to outliers.
+
+
+```{r}
+# Compute correlations
+correlations_with_acc <- f_compute_correlations(dat, 
+                                                target_var = "acc",
+                                                standarize = FALSE, 
+                                                filtered_num_vars = filtered_num_vars)
+
+# Convert row names to a column
+correlations_with_acc <- correlations_with_acc %>% rownames_to_column(var = "variable")
+
+# Identifying the top 15 most positively and negatively correlated variables
+top_n = 15
+top_positively_correlated <- correlations_with_acc %>% 
+                             arrange(desc(spearman)) %>%
+                             head(top_n+1)
+
+top_negatively_correlated <- correlations_with_acc %>% 
+                             arrange(spearman) %>%
+                             head(top_n+1)
+
+# Filter out rows with negative correlation in positive correlated, and vice versa
+top_positively_correlated <- top_positively_correlated[top_positively_correlated$spearman > 0, ]
+top_negatively_correlated <- top_negatively_correlated[top_negatively_correlated$spearman < 0, ]
+
+# filter the target variable out of the correlations 
+top_positively_correlated <- top_positively_correlated[-1, ]
+top_negatively_correlated <- top_negatively_correlated[-1, ]
+
+# reset the index of both corr tables
+rownames(top_positively_correlated) <- seq(1, nrow(top_positively_correlated))
+rownames(top_negatively_correlated) <- seq(1, nrow(top_negatively_correlated))
+
+# Add a column containing the description of the variables
+top_positively_correlated$description <- sapply(top_positively_correlated$variable, 
+                                                function(x) f_get_description(x, varnames_dict))
+top_negatively_correlated$description <- sapply(top_negatively_correlated$variable, 
+                                                function(x) f_get_description(x, varnames_dict))
+
+# Convert the description column to a character vector if it's not already
+top_positively_correlated$description <- as.character(top_positively_correlated$description)
+top_negatively_correlated$description <- as.character(top_negatively_correlated$description)
+```
+
+
+Let's inspect both of these tables:
+
+```{r}
+# Presenting the tables
+print(top_positively_correlated)
+```
+
+```{r}
+print(top_negatively_correlated)
+```
+
+## Visualizations 
+
+We visualize a number of variables of interest to get further insights into the data. 
+
+
+
+## Distribution of Accidents per Borough
+
+**Question:** Which borough has the most accidents?
+
+```{r, fig.width=11, fig.height=8}
+# Calculate total accidents per borough
+borough_accidents <- dat_no_group %>%
+  dplyr::group_by(borough) %>%
+  dplyr::summarize(total_accidents = sum(acc, na.rm = TRUE)) %>%
+  dplyr::arrange(desc(total_accidents))
+
+# Calculate the median and mean number of accidents
+median_accidents <- median(borough_accidents$total_accidents, na.rm = TRUE)
+mean_accidents <- mean(borough_accidents$total_accidents, na.rm = TRUE)
+
+# Bar Chart of Accidents by Borough using borough_accidents
+ggplot(borough_accidents, aes(
+    x = reorder(borough, -total_accidents),
+    y = total_accidents
+  )) +
+  geom_bar(stat = "identity", aes(fill = total_accidents)) +
+  geom_hline(yintercept = median_accidents, color = "red", linetype = "dashed", linewidth = 1) +
+  geom_hline(yintercept = mean_accidents, color = "black", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = nrow(borough_accidents), y = median_accidents, 
+           label = "Median", vjust = -1, color = "red") +
+  annotate("text", x = nrow(borough_accidents), y = mean_accidents, 
+           label = "Mean", vjust = -1, color = "black") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Gradient of blues
+  ggtitle("Number of Accidents by Borough") +
+  xlab("Borough") +
+  ylab("Number of Accidents") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    legend.position = "none"  # Remove legend and rotate labels
+  )
+
+```
+
+An important thing to notice is that some of the boroughts barely contain any data, which demonstrates why we should group the variables. 
+
+
+After grouping, we can repeat this plot for comparison: 
+
+```{r, fig.width=11, fig.height=8}
+# Calculate total accidents per borough
+borough_accidents <- dat %>%
+  dplyr::group_by(borough_grouped) %>%
+  dplyr::summarize(total_accidents = sum(acc, na.rm = TRUE)) %>%
+  dplyr::arrange(desc(total_accidents))
+
+# Calculate the median and mean number of accidents
+median_accidents <- median(borough_accidents$total_accidents, na.rm = TRUE)
+mean_accidents <- mean(borough_accidents$total_accidents, na.rm = TRUE)
+
+# Bar Chart of Accidents by Borough using borough_accidents
+ggplot(borough_accidents, aes(
+    x = reorder(borough_grouped, -total_accidents),
+    y = total_accidents
+  )) +
+  geom_bar(stat = "identity", aes(fill = total_accidents)) +
+  geom_hline(yintercept = median_accidents, color = "red", linetype = "dashed", linewidth = 1) +
+  geom_hline(yintercept = mean_accidents, color = "black", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = nrow(borough_accidents), y = median_accidents, 
+           label = "Median", vjust = -1, color = "red") +
+  annotate("text", x = nrow(borough_accidents), y = mean_accidents, 
+           label = "Mean", vjust = -1, color = "black") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Gradient of blues
+  ggtitle("Number of Accidents by Borough (Grouped)") +
+  xlab("Borough") +
+  ylab("Number of Accidents") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    legend.position = "none"  # Remove legend and rotate labels
+  )
+```
+
+
+## Aggregated Number of Accidents Month by Month 
+
+It is important to understand the seasonality of the accidents, and how the number of accidents varies from month to month. 
+
+```{r}
+# Calculate average accidents per month
+average_monthly_accidents <- dat %>%
+  dplyr::group_by(month) %>%
+  dplyr::summarise(average_accidents = mean(acc, na.rm = TRUE)) %>%
+  dplyr::arrange(month)
+
+# Create a gradient of blues
+blue_gradient <- scale_fill_gradient(low = "lightblue", high = "darkblue")
+
+# Bar Chart of Average Accidents by Month with gradient fill
+ggplot(average_monthly_accidents, aes(x = month, y = average_accidents, fill = average_accidents)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Estimated Average Number of Accidents by Month") +
+  xlab("Month") +
+  ylab("Average Number of Accidents") +
+  scale_x_discrete(labels = c('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  blue_gradient
+```
+
+## Top and Bottom 10 Intersections with Most Accidents
+
+We can visualize the top 10 intersections with the most accidents, and the bottom 10 intersections with the least accidents. 
+
+```{r, warning=FALSE, fig.width=11, fig.height=8}
+# Assuming 'dat' and 'inter_names' are your dataframes
+# Join 'dat' with 'inter_names' to include 'rue_1' and 'rue_2' based on 'int_no'
+dat_with_inter_names <- dplyr::left_join(dat, inter_names, by = "int_no")
+
+# Calculate total accidents per intersection
+intersection_accidents <- dat_with_inter_names %>%
+  dplyr::group_by(int_no, rue_1, rue_2) %>%
+  dplyr::summarise(total_accidents = sum(acc, na.rm = TRUE), .groups = 'drop') %>%
+  dplyr::arrange(dplyr::desc(total_accidents))
+
+# Extract the top 10 intersections
+top_intersections <- head(intersection_accidents, 10)
+
+# Create a factor variable for accident ranges
+top_intersections$accident_range <- cut(
+  top_intersections$total_accidents,
+  breaks = quantile(top_intersections$total_accidents, probs = seq(0, 1, length.out = 5), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = FALSE
+)
+
+# Plotting the top 10 intersections with gradient fill
+ggplot(top_intersections, aes(x = reorder(paste(rue_1, rue_2, sep = " & "), -total_accidents), y = total_accidents, fill = factor(accident_range))) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(palette = "Blues", direction = 1) +
+  ggtitle("Top 10 Intersections with Most Accidents") +
+  xlab("Intersection") +
+  ylab("Number of Accidents") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip()  # Flip coordinates for horizontal layout
+
+# Note: Adjusted to "Top 10" as per the actual data extraction in the code.
+```
+
+
+## Additional Data Preparation 
 
 ### Train-validation split 
 
@@ -183,6 +489,24 @@ dat_dum_val   <- dat_dum[-trainIndex_dum,]
 cat("Dimensions of dat_dum_train:", dim(dat_dum_train), "\n")
 cat("Dimensions of dat_dum_val:", dim(dat_dum_val), "\n")
 ```
+
+
+## Cleanup 
+
+```{r}
+# Drop a number of objects which are no longer used in the rest of the script and clean memory  
+rm(dat_orig, dat_no_group, dat_with_inter_names, intersection_accidents)
+gc(verbose=FALSE);
+```
+
+# Variable Selection 
+
+In this section to keep it short, we will perform variable selection using the following methods: 
+
+- Stepwise with AIC/BIC 
+- Lasso selection
+- RF Importance Selection
+- Top Spearman-correlated covariates with acc 
 
 
 ### Stepwise with AIC/BIC 
@@ -292,6 +616,7 @@ selected_covariates <- list(stepwise_aic = selected_vars)
 # Print the list to see the selected variables
 print(selected_covariates)
 ```
+
 ## Stepwise BIC 
 
 ```{r}
@@ -469,7 +794,8 @@ selected_covariates$spearman <- significant_correlations$variable
 print(selected_covariates)
 ```
 
-# Prediction 
+
+# Model Selection
 
 Based on the selected variables, we would like to select the "best" model by fitting a model again to the training data 
 
@@ -715,7 +1041,7 @@ print(model_performance)
 
 - RF Features + Ridge Model 
 
-```{r}
+```{r, warning=FALSE, message=FALSE}
 # Convert training data to matrix with selected covariates from random forest importance
 X_train_rf <- as.matrix(dat_train[, selected_covariates$rf_importance])
 y_train_rf <- dat_train$acc
@@ -843,34 +1169,40 @@ model_performance <- rbind(model_performance, list(Model_Name = "OLS+Corr", MSE 
 
 
 ```{r, eval=FALSE}
-# Define train control
-ctrl <- trainControl(method = "cv", number = 5, allowParallel = TRUE, verbose = TRUE)
+# param to run the code 
+run_xgb_tuning = FALSE 
 
-# Define the grid for tuning parameters
-grid <- expand.grid(nrounds = c(100, 200, 300),
-                    max_depth = c(3, 6, 9),
-                    eta = c(0.01, 0.1, 0.3),
-                    gamma = c(0, 1, 5),
-                    colsample_bytree = c(0.5, 0.7, 1),
-                    min_child_weight = c(3, 5),
-                    subsample = c(0.5, 0.7))
-
-# Perform grid search to tune parameters
-xgb_model_tuned <- train(acc ~ ., 
-                         data = dat_train[, !(names(dat_train) %in% c("acc", "int_no"))], 
-                         method = "xgbTree",
-                         trControl = ctrl, 
-                         tuneGrid = grid)
-
-# Make predictions on the validation set using the tuned model
-preds_xgb_tuned <- predict(xgb_model_tuned, newdata = dat_val[, !(names(dat_val) %in% c("acc", "int_no"))])
-
-# Calculate mean squared error with tuned parameters
-mse_xgb_tuned <- mean((preds_xgb_tuned - dat_val$acc)^2)
-print(mse_xgb_tuned)
-
-# Store the performance in dataset
-model_performance <- rbind(model_performance, list(Model_Name = "Tuned XGBoost", MSE = mse_xgb_tuned))
+# Tuning XGBoost model
+if(run_xgb_tuning){
+  # Define train control
+  ctrl <- trainControl(method = "cv", number = 5, allowParallel = TRUE, verbose = TRUE)
+  
+  # Define the grid for tuning parameters
+  grid <- expand.grid(nrounds = c(100, 200, 300),
+                      max_depth = c(3, 6, 9),
+                      eta = c(0.01, 0.1, 0.3),
+                      gamma = c(0, 1, 5),
+                      colsample_bytree = c(0.5, 0.7, 1),
+                      min_child_weight = c(3, 5),
+                      subsample = c(0.5, 0.7))
+  
+  # Perform grid search to tune parameters
+  xgb_model_tuned <- train(acc ~ ., 
+                           data = dat_train[, !(names(dat_train) %in% c("acc", "int_no"))], 
+                           method = "xgbTree",
+                           trControl = ctrl, 
+                           tuneGrid = grid)
+  
+  # Make predictions on the validation set using the tuned model
+  preds_xgb_tuned <- predict(xgb_model_tuned, newdata = dat_val[, !(names(dat_val) %in% c("acc", "int_no"))])
+  
+  # Calculate mean squared error with tuned parameters
+  mse_xgb_tuned <- mean((preds_xgb_tuned - dat_val$acc)^2)
+  print(mse_xgb_tuned)
+  
+  # Store the performance in dataset
+  model_performance <- rbind(model_performance, list(Model_Name = "Tuned XGBoost", MSE = mse_xgb_tuned))
+}
 ```
 
 
@@ -925,8 +1257,7 @@ print(model_performance[order(model_performance$RMSE), ])
 ```
 
 
-
-# Ranking 
+# Ranking the Intersections 
 
 To perform the ranking, we use the best model based on MSE. 
 
@@ -955,7 +1286,8 @@ final_df$ranking <- seq_len(nrow(final_df))
 final_df <- final_df %>% rename(latitude = x, longitude = y)
 
 # Print the final dataframe
-final_df
+head(final_df, 10)
+dim(final_df)
 ```
 
 ## Create the json file with the rankings 
@@ -965,7 +1297,10 @@ final_df
 risk_rank_df <- final_df[, c("int_no", "ranking")]
 
 # Save the dataframe to a .csv file
-write.csv(risk_rank_df, here("intersection_risk_rank.csv"), row.names = FALSE)
+write.csv(risk_rank_df, here("data_clean", "intersection_risk_rank.csv"), row.names = FALSE)
+
+# display the saved file 
+head(risk_rank_df)
 ```
 
 
