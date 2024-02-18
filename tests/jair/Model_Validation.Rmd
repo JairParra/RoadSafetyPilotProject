@@ -793,7 +793,7 @@ grid <- expand.grid(mtry = 5:7)
 
 # Perform grid search to tune both mtry and nodesize
 rf_model_tuned <- train(acc ~ ., 
-                        data = dat_train, 
+                        data = dat_train[, !(names(dat_train) %in% c("int_no"))], 
                         method = "rf",
                         trControl = ctrl, 
                         tuneGrid = grid,
@@ -803,7 +803,7 @@ rf_model_tuned <- train(acc ~ .,
 plot(rf_model_tuned)
 
 # Make predictions on the validation set using the tuned model
-preds_rf_tuned <- predict(rf_model_tuned, newdata = dat_val)
+preds_rf_tuned <- predict(rf_model_tuned, newdata = dat_val[, !(names(dat_val) %in% c("int_no"))])
 
 # Calculate mean squared error with tuned parameters
 mse_rf_tuned <- mean((preds_rf_tuned - dat_val$acc)^2)
@@ -857,13 +857,13 @@ grid <- expand.grid(nrounds = c(100, 200, 300),
 
 # Perform grid search to tune parameters
 xgb_model_tuned <- train(acc ~ ., 
-                         data = dat_train, 
+                         data = dat_train[, !(names(dat_train) %in% c("acc", "int_no"))], 
                          method = "xgbTree",
                          trControl = ctrl, 
                          tuneGrid = grid)
 
 # Make predictions on the validation set using the tuned model
-preds_xgb_tuned <- predict(xgb_model_tuned, newdata = dat_val)
+preds_xgb_tuned <- predict(xgb_model_tuned, newdata = dat_val[, !(names(dat_val) %in% c("acc", "int_no"))])
 
 # Calculate mean squared error with tuned parameters
 mse_xgb_tuned <- mean((preds_xgb_tuned - dat_val$acc)^2)
@@ -879,6 +879,10 @@ FIt the XGBoost model with optimal hypertuned parameters:
 
 ```{r}
 library(xgboost)
+
+# Define the train and val matrices without acc or int_no
+train_matrix <- as.matrix(dat_dum_train[, !(names(dat_dum_train) %in% c("acc", "int_no"))])
+val_matrix <- as.matrix(dat_dum_val[, !(names(dat_dum_val) %in% c("acc", "int_no"))])
 
 # Define parameters for the XGBoost model
 xgb_params <- list(max_depth = 6,
@@ -907,7 +911,6 @@ print(paste("Mean Squared Error (MSE) for Tuned XGBoost:", mse_xgb_tuned))
 
 # Store the performance in the dataset
 model_performance <- rbind(model_performance, list(Model_Name = "Tuned XGBoost", MSE = mse_xgb_tuned))
-
 ```
 
 ### All performances 
@@ -940,7 +943,7 @@ predictions_df <- data.frame(int_no = dat_dum$int_no,
                              predicted_acc = predictions_full_lm)
 
 # Perform the join with inter_names on int_no
-final_df <- merge(predictions_sorted_df, inter_names, by = "int_no")
+final_df <- merge(predictions_df, inter_names, by = "int_no")
 
 # Sort final_df by predicted_acc in descending order
 final_df <- final_df[order(final_df$predicted_acc, decreasing = TRUE), ]
