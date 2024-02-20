@@ -687,6 +687,8 @@ mse <- mean((predictions - dat_val$acc)^2)
 print(mse)
 
 model_performance <- rbind(model_performance, list(Model_Name = "Tuned RF", MSE = mse))
+
+print(mean((predict(rf_model, newdata = dat_train) - dat_train$acc)^2))
 ```
 print(model_performance)
 
@@ -704,7 +706,185 @@ print(paste("Mean Squared Error (MSE) on validation set:", mse))
 model_performance <- rbind(model_performance, list(Model_Name = "OLS+Corr", MSE = mse))
 ```
 
-## XGBoost 
+## Basic Linear Regression with no variable selection + log transformation of target
+
+```{r}
+epsilon <- 1e-10
+
+lm_model <- lm(log(acc + epsilon) ~ ., data = dat_train)
+
+# Make predictions on the original scale
+predictions <- exp(predict(lm_model, newdata = dat_val))
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the model performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "OLS + LN", MSE = mse))
+```
+## GLM poisson L1
+
+
+```{r}
+library(glmnet)
+
+
+# Fit Poisson regression model with L1 regularization
+dat_train_X_matrix =as.matrix(dat_train[, !names(dat_train) %in% c('acc')])
+dat_val_X_matrix =as.matrix(dat_val[, !names(dat_val) %in% c('acc')])
+
+alpha <- 1
+cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha)
+
+# Plot cross-validated deviance as a function of lambda
+plot(cvfit)
+
+# Select the best lambda based on cross-validation
+best_lambda <- cvfit$lambda.min
+
+# Refit the model with the selected lambda
+fit <- glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha, lambda = best_lambda)
+
+
+predictions <-predict(fit, newx = dat_val_X_matrix, type = 'response')
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the model performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L1", MSE = mse))
+
+
+```
+
+GLM Poisson Refit
+```{r}
+
+# Extract the coefficients from the glmnet object
+coefficients <- coef(fit, s = "lambda.min")
+
+# Extract non-zero coefficients (selected variables)
+selected_variables <- names(which(coefficients[-1, ] != 0))
+
+# Extract the corresponding columns from the original data
+selected_data <- dat_train[, c("acc", selected_variables)]
+
+# Fit a Poisson regression model without regularization using selected variables
+final_glm_model <- glm(acc ~ ., data = selected_data, family = "poisson")
+
+predictions <- predict(final_glm_model, newdata = dat_val, type = "response")
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the model performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_refit", MSE = mse))
+
+length(selected_variables)
+
+```
+
+## GLM poisson L2
+
+
+```{r}
+library(glmnet)
+
+alpha <- 2
+cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha)
+
+# Extract the corresponding columns from the original data
+selected_data <- dat_train_X_matrix[, ( selected_variables)]
+
+# Plot cross-validated deviance as a function of lambda
+plot(cvfit)
+
+# Select the best lambda based on cross-validation
+best_lambda <- cvfit$lambda.min
+
+# Refit the model with the selected lambda
+fit <- glmnet(x = selected_data, y = dat_train$acc, family = "poisson", alpha = alpha, lambda = best_lambda)
+
+
+predictions <-predict(fit, newx = dat_val_X_matrix[, ( selected_variables)], type = 'response')
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the model performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L2+L1", MSE = mse))
+
+
+```
+
+## GLM poisson L2 on top of L1 selection
+
+
+```{r}
+alpha <- 2
+cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha)
+
+# Plot cross-validated deviance as a function of lambda
+plot(cvfit)
+
+# Select the best lambda based on cross-validation
+best_lambda <- cvfit$lambda.min
+
+# Refit the model with the selected lambda
+fit <- glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha, lambda = best_lambda)
+
+
+predictions <-predict(fit, newx = dat_val_X_matrix, type = 'response')
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the model performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L1", MSE = mse))
+
+```
+
+### Boosting of glm
+```{r}
+gbm_model <- gbm(
+    formula = acc ~ .,
+    distribution = "poisson",
+    data = dat_train,
+    n.trees = 100,  # Adjust the number of boosting iterations as needed
+    interaction.depth = 1 # Vary the interaction depth
+  )
+
+  # Make predictions on the validation set
+  predictions <- predict(gbm_model, newdata = dat_val, n.trees = 100, type = "response")
+  
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the model performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Poisson_BOOST", MSE = mse))
+
+print(mean((predict(gbm_model, newdata = dat_train, n.trees = 100, type = "response") - dat_train$acc)^2))
+
+```
+
+
 
 ### All performances 
 
