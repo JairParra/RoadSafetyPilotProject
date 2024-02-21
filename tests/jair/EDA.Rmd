@@ -199,7 +199,10 @@ linearly correlated covariates with the target variable `acc`. For this, we use 
 
 ```{r}
 # Compute correlations
-correlations_with_acc <- f_compute_correlations(dat, "acc", filtered_num_vars)
+correlations_with_acc <- f_compute_correlations(dat, 
+                                                target_var = "acc",
+                                                standarize = FALSE, 
+                                                filtered_num_vars = filtered_num_vars)
 
 # Convert row names to a column
 correlations_with_acc <- correlations_with_acc %>% rownames_to_column(var = "variable")

@@ -1,0 +1,1306 @@
+---
+title: "Road Safety Pilot Project - Forecasting"
+author: "Hair"
+header-includes:
+- \usepackage{amsmath}
+- \usepackage{amssymb}
+- \usepackage{amsthm}
+- \usepackage{fancyhdr}
+- \pagestyle{fancy}
+- \fancyhead[CO,CE]{Hair Parra}
+- \fancyfoot[CO,CE]{Notes by Hair Parra}
+- \fancyfoot[LE,RO]{\thepage}
+output:
+  pdf_document:
+    extra_dependencies:
+    - array
+    - amsmath
+    - booktabs
+  html_document:
+    df_print: paged
+always_allow_html: true
+geometry: margin=1.3cm
+---
+
+\newtheorem{assumption}{Assumption}[assumption]
+\newtheorem{theorem}{Theorem}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{example}{Example}
+\newtheorem{remark*}{Remark}
+\newtheorem{aside*}{Aside}
+\newtheorem{exercise*}{Exercise}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.width=9, fig.height=6) 
+
+# configurations for plot 
+my_plot_hook <- function(x, options)
+  paste("\n", knitr::hook_plot_tex(x, options), "\n")
+knitr::knit_hooks$set(plot = my_plot_hook)
+```
+
+## Libraries 
+
+```{r libraries, message=FALSE, warning=FALSE}
+# Needed to load custom scripts
+library("here")
+
+# Custom scripts  
+source(here("functions", "utils.R"))
+source(here("functions", "clean_data.R"))
+source(here("functions", "install_packages.R"))
+
+# the following function will try to install and load all the required
+# packages for this project. 
+f_load_packages()
+```
+
+
+
+## On Execution time
+
+Due to the methodology employed and the number of models fit as well as several other procedures, running the whole script will take around ~10 minutes in total. 
+
+
+
+# Exploratory Data Analysis
+
+## Data Loading and Preparation 
+
+The following chunk of code will take care of the main steps: 
+
+1. Loading the data
+2. Data cleaning and preprocessing 
+3. Implementing the dummies version of the dataset, necessary for some of the models.
+4. Extracting relevant meta-data. 
+
+```{r message=FALSE, warning=FALSE}
+############################
+### 1. Load the Raw Data ###
+############################
+
+# Load the dataset and perform data cleaning 
+dat_orig <- read.csv(here("data_raw", "data_final.csv"), sep=";")
+
+# store the intersections id_no to rue_1 and rue_2 mapping
+inter_names <- subset(dat_orig, select = c(int_no, x, y, rue_1, rue_2))
+
+#########################
+### 2. Clean the data ###
+#########################
+
+# Create two clean versions of the data 
+dat <- f_clean_data(dat_orig,  # original data
+                    group_boroughs = TRUE, # Group the levels in the borough variable
+                    drop_borough=TRUE,  # If the borough levels were grouped, drop the original variable
+                    drop_year=TRUE,  # Drop the year variable, but weekly and monthly features are kept. 
+                    standarize = TRUE, # Standarize the numerical variables
+                    numerical_categories = FALSE) # Convert some integer-based variables to categorical 
+
+# Create a simple version of the data for EDA visualization purposes
+dat_no_group <- f_clean_data(dat_orig, group_boroughs = FALSE)
+
+# # Drop the raw data object 
+# rm(dat_orig); gc(verbose=FALSE);
+
+#################################
+### 3. Cleate Dummies Version ###
+#################################
+
+## Create an additional version which contains dummies instead of factors 
+
+# All the variables should go into the dummies, except `acc`
+all_vars <- setdiff(colnames(dat), "acc")
+
+# Create a version with dummies
+dat_dum <- f_convert_to_dummies(dat, all_vars)
+
+# Reassign the target variable
+dat_dum$acc <- dat$acc
+
+##################################################
+### 4. Extract variable names and descriptions ###
+##################################################
+
+# Load variable descriptors 
+result <- f_load_varnames(here("data_raw", "Dictionnaire_final.xlsx"))
+varnames <- result$varnames
+varnames_dict <- result$varnames_dict
+```
+
+
+### Inspecting the raw data 
+
+We can preview our dataset, and see that there is a number of columns which are irrelevant, the names are corrupted, variable naming conventions are not clear, etc. 
+
+```{r}
+# Data before preprocessing or cleaning 
+head(dat_orig)
+```
+
+The borough names are not very clear and contain strange characters: 
+
+```{r}
+unique(dat_orig$borough)
+```
+
+
+```{r}
+str(dat_orig)
+```
+
+
+
+- We can observe a number of irrelevant columns (e.g. `street_1`, `street_2`, `X`, `X.1`) that we will remove.
+- Also, the borough names contains typos, so we will also correct those to have consiten names.
+- We also observersome covariates are of the wrong type (e.g. categorical, numerical, etc.)
+
+All of these problems are addressed by the function `f_clean_data`, which does the follwoing: 
+
+1. Remove a number of columns such that "street_1", "street_2", "X", "X.1", "int_no", 'rue_1', 'rue_2', "traffic_10000", "ped_100".
+2. **TODO** Complete. 
+
+
+### Meta-data
+
+We separate some meta-data from the main data for convenience: 
+
+```{r}
+head(inter_names)
+```
+
+### Data after cleaning 
+
+After cleaning and preprocessing, we end up with two versions of the clean dataset: 
+
+1. `dat`: The main version of the data, with the following characteristics: 
+    - Grouped boroughs
+    - Standarized numerical variables
+    - Removed irrelevant columns
+    - Removed the year variable
+    - Converted some integer-based variables to categorical
+    
+2. `dat_dum`: A version of the data with dummies instead of factors. 
+
+```{r}
+head(dat)
+head(dat_dum)
+```
+
+We can observe that the datatypes now are of the correct type for all variables, and the unique names of the borough have also been corrected (and grouped)
+
+```{r}
+str(dat)
+```
+
+
+```{r}
+unique(dat$borough)
+```
+The variable `Other` contains the boroughts which contained fewer observations (**TODO:** Name which boroughs were removed.)
+
+The dataset `dat_dum` is similar in nature, but contains only numerical variables, since the categorical variables have been converted to one-hot encoded vectors: 
+
+```{r}
+str(dat_dum)
+```
+
+
+## Correlation Analysis 
+
+We can study the correlation among numerical variables and the target `acc`, to get a good idea of potential predictors (this is worked more in depth in the **Variable Selection** section): 
+
+```{r}
+# Define the numerical variables from the dat dataset
+num_vars <- colnames(dat)[sapply(dat, is.numeric)]
+
+# Filter out 'ln_' prefixed variables from num_vars and ensure 'acc' is included
+filtered_num_vars <- num_vars[!grepl("^ln_", num_vars) | num_vars == "acc"]
+
+# Selecting only the correct numerical variables including 'acc'
+numeric_dat <- dat %>%
+  dplyr::select(all_of(filtered_num_vars))
+
+# Standardize the numerical data (becomes a matrix)
+std_num_dat <- f_standardize_data(numeric_dat, auto=TRUE)
+
+# Re-add the target variable 'acc' to the standardized data (matrix)
+std_num_dat <- cbind(std_num_dat, dat$acc)
+colnames(std_num_dat)[ncol(std_num_dat)] <- "acc"
+
+# Compute the correlation matrix
+cor_matrix <- cor(std_num_dat, use = "complete.obs", method="spearman")
+
+# Convert the correlation matrix to a long format
+cor_data <- as.data.frame(as.table(cor_matrix))
+
+# Plotting the correlation matrix
+ggplot(cor_data, aes(x = Var1, y = Var2, fill = Freq)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(fill = "Correlation", x = "", y = "", title = "Correlation Matrix of Numerical Variables")
+```
+
+
+Since the correlation matrix is hard to understand, we look to focus our attention on the most 
+linearly correlated covariates with the target variable `acc`. For this, we use three correlation metrics: Pearson, Spearman and Kendall. In particular, we use as a sorting criterion the Spearman correlation metric, which is the most robust to outliers.
+
+
+```{r}
+# Compute correlations
+correlations_with_acc <- f_compute_correlations(dat, 
+                                                target_var = "acc",
+                                                standarize = FALSE, 
+                                                filtered_num_vars = filtered_num_vars)
+
+# Convert row names to a column
+correlations_with_acc <- correlations_with_acc %>% rownames_to_column(var = "variable")
+
+# Identifying the top 15 most positively and negatively correlated variables
+top_n = 15
+top_positively_correlated <- correlations_with_acc %>% 
+                             arrange(desc(spearman)) %>%
+                             head(top_n+1)
+
+top_negatively_correlated <- correlations_with_acc %>% 
+                             arrange(spearman) %>%
+                             head(top_n+1)
+
+# Filter out rows with negative correlation in positive correlated, and vice versa
+top_positively_correlated <- top_positively_correlated[top_positively_correlated$spearman > 0, ]
+top_negatively_correlated <- top_negatively_correlated[top_negatively_correlated$spearman < 0, ]
+
+# filter the target variable out of the correlations 
+top_positively_correlated <- top_positively_correlated[-1, ]
+top_negatively_correlated <- top_negatively_correlated[-1, ]
+
+# reset the index of both corr tables
+rownames(top_positively_correlated) <- seq(1, nrow(top_positively_correlated))
+rownames(top_negatively_correlated) <- seq(1, nrow(top_negatively_correlated))
+
+# Add a column containing the description of the variables
+top_positively_correlated$description <- sapply(top_positively_correlated$variable, 
+                                                function(x) f_get_description(x, varnames_dict))
+top_negatively_correlated$description <- sapply(top_negatively_correlated$variable, 
+                                                function(x) f_get_description(x, varnames_dict))
+
+# Convert the description column to a character vector if it's not already
+top_positively_correlated$description <- as.character(top_positively_correlated$description)
+top_negatively_correlated$description <- as.character(top_negatively_correlated$description)
+```
+
+
+Let's inspect both of these tables:
+
+```{r}
+# Presenting the tables
+print(top_positively_correlated)
+```
+
+```{r}
+print(top_negatively_correlated)
+```
+
+## Visualizations 
+
+We visualize a number of variables of interest to get further insights into the data. 
+
+
+
+## Distribution of Accidents per Borough
+
+**Question:** Which borough has the most accidents?
+
+```{r, fig.width=11, fig.height=8}
+# Calculate total accidents per borough
+borough_accidents <- dat_no_group %>%
+  dplyr::group_by(borough) %>%
+  dplyr::summarize(total_accidents = sum(acc, na.rm = TRUE)) %>%
+  dplyr::arrange(desc(total_accidents))
+
+# Calculate the median and mean number of accidents
+median_accidents <- median(borough_accidents$total_accidents, na.rm = TRUE)
+mean_accidents <- mean(borough_accidents$total_accidents, na.rm = TRUE)
+
+# Bar Chart of Accidents by Borough using borough_accidents
+ggplot(borough_accidents, aes(
+    x = reorder(borough, -total_accidents),
+    y = total_accidents
+  )) +
+  geom_bar(stat = "identity", aes(fill = total_accidents)) +
+  geom_hline(yintercept = median_accidents, color = "red", linetype = "dashed", linewidth = 1) +
+  geom_hline(yintercept = mean_accidents, color = "black", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = nrow(borough_accidents), y = median_accidents, 
+           label = "Median", vjust = -1, color = "red") +
+  annotate("text", x = nrow(borough_accidents), y = mean_accidents, 
+           label = "Mean", vjust = -1, color = "black") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Gradient of blues
+  ggtitle("Number of Accidents by Borough") +
+  xlab("Borough") +
+  ylab("Number of Accidents") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    legend.position = "none"  # Remove legend and rotate labels
+  )
+
+```
+
+An important thing to notice is that some of the boroughts barely contain any data, which demonstrates why we should group the variables. 
+
+
+After grouping, we can repeat this plot for comparison: 
+
+```{r, fig.width=11, fig.height=8}
+# Calculate total accidents per borough
+borough_accidents <- dat %>%
+  dplyr::group_by(borough_grouped) %>%
+  dplyr::summarize(total_accidents = sum(acc, na.rm = TRUE)) %>%
+  dplyr::arrange(desc(total_accidents))
+
+# Calculate the median and mean number of accidents
+median_accidents <- median(borough_accidents$total_accidents, na.rm = TRUE)
+mean_accidents <- mean(borough_accidents$total_accidents, na.rm = TRUE)
+
+# Bar Chart of Accidents by Borough using borough_accidents
+ggplot(borough_accidents, aes(
+    x = reorder(borough_grouped, -total_accidents),
+    y = total_accidents
+  )) +
+  geom_bar(stat = "identity", aes(fill = total_accidents)) +
+  geom_hline(yintercept = median_accidents, color = "red", linetype = "dashed", linewidth = 1) +
+  geom_hline(yintercept = mean_accidents, color = "black", linetype = "dashed", linewidth = 1) +
+  annotate("text", x = nrow(borough_accidents), y = median_accidents, 
+           label = "Median", vjust = -1, color = "red") +
+  annotate("text", x = nrow(borough_accidents), y = mean_accidents, 
+           label = "Mean", vjust = -1, color = "black") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +  # Gradient of blues
+  ggtitle("Number of Accidents by Borough (Grouped)") +
+  xlab("Borough") +
+  ylab("Number of Accidents") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), 
+    legend.position = "none"  # Remove legend and rotate labels
+  )
+```
+
+
+## Aggregated Number of Accidents Month by Month 
+
+It is important to understand the seasonality of the accidents, and how the number of accidents varies from month to month. 
+
+```{r}
+# Calculate average accidents per month
+average_monthly_accidents <- dat %>%
+  dplyr::group_by(month) %>%
+  dplyr::summarise(average_accidents = mean(acc, na.rm = TRUE)) %>%
+  dplyr::arrange(month)
+
+# Create a gradient of blues
+blue_gradient <- scale_fill_gradient(low = "lightblue", high = "darkblue")
+
+# Bar Chart of Average Accidents by Month with gradient fill
+ggplot(average_monthly_accidents, aes(x = month, y = average_accidents, fill = average_accidents)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Estimated Average Number of Accidents by Month") +
+  xlab("Month") +
+  ylab("Average Number of Accidents") +
+  scale_x_discrete(labels = c('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  blue_gradient
+```
+
+## Top and Bottom 10 Intersections with Most Accidents
+
+We can visualize the top 10 intersections with the most accidents, and the bottom 10 intersections with the least accidents. 
+
+```{r, warning=FALSE, fig.width=11, fig.height=8}
+# Assuming 'dat' and 'inter_names' are your dataframes
+# Join 'dat' with 'inter_names' to include 'rue_1' and 'rue_2' based on 'int_no'
+dat_with_inter_names <- dplyr::left_join(dat, inter_names, by = "int_no")
+
+# Calculate total accidents per intersection
+intersection_accidents <- dat_with_inter_names %>%
+  dplyr::group_by(int_no, rue_1, rue_2) %>%
+  dplyr::summarise(total_accidents = sum(acc, na.rm = TRUE), .groups = 'drop') %>%
+  dplyr::arrange(dplyr::desc(total_accidents))
+
+# Extract the top 10 intersections
+top_intersections <- head(intersection_accidents, 10)
+
+# Create a factor variable for accident ranges
+top_intersections$accident_range <- cut(
+  top_intersections$total_accidents,
+  breaks = quantile(top_intersections$total_accidents, probs = seq(0, 1, length.out = 5), na.rm = TRUE),
+  include.lowest = TRUE,
+  labels = FALSE
+)
+
+# Plotting the top 10 intersections with gradient fill
+ggplot(top_intersections, aes(x = reorder(paste(rue_1, rue_2, sep = " & "), -total_accidents), y = total_accidents, fill = factor(accident_range))) +
+  geom_bar(stat = "identity") +
+  scale_fill_brewer(palette = "Blues", direction = 1) +
+  ggtitle("Top 10 Intersections with Most Accidents") +
+  xlab("Intersection") +
+  ylab("Number of Accidents") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip()  # Flip coordinates for horizontal layout
+
+# Note: Adjusted to "Top 10" as per the actual data extraction in the code.
+```
+
+
+## Additional Data Preparation 
+
+### Train-validation split 
+
+In order to perform variable selection, and be able to compare the different methods, we will split the data into a training and validation set. 
+
+
+```{r}
+# Set seed for reproducibility
+set.seed(123)
+
+# Split data - example using dat
+trainIndex <- createDataPartition(dat$acc, 
+                                  p = .8,  # 80% of the data
+                                  list = FALSE, 
+                                  times = 1)
+dat_train <- dat[ trainIndex,]
+dat_val   <- dat[-trainIndex,]
+
+# Print dimensions of the dat_train and dat_val
+cat("Dimensions of dat_train:", dim(dat_train), "\n")
+cat("Dimensions of dat_val:", dim(dat_val), "\n")
+
+# Repeat for dat_dum if necessary
+trainIndex_dum <- createDataPartition(dat_dum$acc,
+                                      p = .8, 
+                                      list = FALSE, 
+                                      times = 1)
+dat_dum_train <- dat_dum[ trainIndex_dum,]
+dat_dum_val   <- dat_dum[-trainIndex_dum,]
+
+# Print dimensions of the dat_dum_train and dat_dum_val
+cat("Dimensions of dat_dum_train:", dim(dat_dum_train), "\n")
+cat("Dimensions of dat_dum_val:", dim(dat_dum_val), "\n")
+```
+
+
+## Cleanup 
+
+```{r}
+# Drop a number of objects which are no longer used in the rest of the script and clean memory  
+rm(dat_orig, dat_no_group, dat_with_inter_names, intersection_accidents)
+gc(verbose=FALSE);
+```
+
+# Variable Selection 
+
+In this section to keep it short, we will perform variable selection using the following methods: 
+
+- Stepwise with AIC/BIC 
+- Lasso selection
+- RF Importance Selection
+- Top Spearman-correlated covariates with acc 
+
+
+### Stepwise with AIC/BIC 
+
+A couple of important interactions to consider:
+
+- **Time interactions**: With `month` and day of the week `dow`
+- **Traffic Flow and Pedestrian Protection Measures**: Interactions between the average annual daily flow for vehicles and pedestrians (e.g., `fi`, `pi`) and pedestrian protection measures (`any_ped_pr`, `lt_protect`, `lt_restric`, `lt_prot_re`, `ped_countd`, `curb_exten`) could reveal how traffic volume interacts with safety measures.
+- **Road Characteristics and Safety Measures:** The presence of medians, exclusive lanes, and the total width of roads (`median`, `any_exclus`, `tot_road_w`) may have different impacts on safety when combined with pedestrian safety measures.
+- **Directional Traffic Flow with Specific Safety Measures:** Examining how the flow of traffic in specific directions (e.g., `north_veh`, `east_veh`, `south_veh`, `west_veh`) interacts with pedestrian phases and countdowns could highlight directional risks.
+- **Pedestrian and Vehicle Flow Interactions:** The interactions between pedestrian flow (`pi`, `north_ped`, `east_ped`, `south_ped`, `west_ped`) and vehicle flow (`fi`, `north_veh`, `east_veh`, `south_veh`, `west_veh`) could help understand how pedestrian safety is affected by vehicle traffic direction and volume.
+- **Distance from Downtown and Safety Measures:** The effect of an intersection's distance from downtown (`distdt`, `ln_distdt`) on the effectiveness of safety measures might vary, considering that downtown areas could have different traffic and pedestrian patterns.
+- **Temporal Factors and Traffic Flow:** The interaction between temporal factors (`month`, `dow`) and traffic flow variables (fi, pi) might uncover seasonal or weekly patterns in pedestrian safety.
+
+```{r}
+# Create the initial model with extended interactions
+initial_model <- lm(acc ~ . 
+
+                    # Existing interactions with month and day of week
+                    + month * cli
+                    + month * cri
+                    + month * cti
+                    + month * ln_cli
+                    + month * ln_cri
+                    + month * ln_cti
+                    + dow * cli
+                    + dow * cri
+                    + dow * cti
+                    + dow * ln_cli
+                    + dow * ln_cri
+                    + dow * ln_cti
+
+                    # Traffic Flow and Pedestrian Protection Measures
+                    + fi * any_ped_pr
+                    + pi * lt_protect
+                    + fi * lt_restric
+                    + pi * lt_prot_re
+                    + fi * ped_countd
+                    + pi * curb_exten
+
+                    # Road Characteristics and Safety Measures
+                    + median * any_ped_pr
+                    + any_exclus * lt_protect
+                    + tot_road_w * curb_exten
+
+                    # Directional Traffic Flow with Specific Safety Measures
+                    + north_veh * half_phase
+                    + east_veh * ped_countd
+                    + south_veh * green_stra
+                    + west_veh * any_ped_pr
+
+                    # Pedestrian and Vehicle Flow Interactions
+                    + pi * fi
+                    + north_ped * north_veh
+                    + east_ped * east_veh
+                    + south_ped * south_veh
+                    + west_ped * west_veh
+
+                    # Distance from Downtown and Safety Measures
+                    + ln_distdt * any_ped_pr
+                    + distdt * lt_protect
+
+                    # Temporal Factors and Traffic Flow
+                    + month * fi
+                    + dow * pi
+
+                    # Interactions with Polynomial Terms
+                    + pi_squared * lt_protect
+                    + fi_squared * any_ped_pr
+                    + distdt_squared * green_stra
+                    + distdt_cubed * half_phase
+                    + tot_crossw_squared * lt_restric
+                    + avg_crossw_squared * ped_countd
+                    + tot_road_w_squared * curb_exten
+                    + fli_squared * east_veh
+                    + fri_squared * west_veh
+                    + fti_squared * north_veh
+                    
+                    # Ignore the index int_no
+                    - int_no 
+                    
+                    , data = dat_train)
+
+
+# Perform stepwise feature selection with interactions using AIC
+stepwise_aic <- stepAIC(initial_model, direction = "both", k = 2, trace=FALSE)
+
+# Display the summary of the final model
+summary(stepwise_aic)
+```
+
+```{r}
+# Create a list object which will contain all the predictors for different methods 
+
+# Extract the model formula
+model_formula <- formula(stepwise_aic)
+
+# Extract terms from the formula
+model_terms <- labels(terms(model_formula))
+
+# Since the first term is usually the response variable (left of ~), we remove it to get only predictors
+selected_vars <- model_terms[-1] # Removes the first element, which is the response variable 'acc'
+
+# Pack into a list under the key "stepwise_bic"
+selected_covariates <- list(stepwise_aic = selected_vars)
+
+# Print the list to see the selected variables
+print(selected_covariates)
+```
+
+## Stepwise BIC 
+
+```{r}
+# Perform stepwise feature selection with interactions using BIC
+stepwise_bic <- stepAIC(initial_model, direction = "both", k = log(nrow(dat_train)), trace=FALSE)
+
+# Extract the model formula
+model_formula <- formula(stepwise_bic)
+
+# Extract terms from the formula
+model_terms <- labels(terms(model_formula))
+
+# Since the first term is usually the response variable (left of ~), we remove it to get only predictors
+selected_vars <- model_terms[-1] # Removes the first element, which is the response variable 'acc'
+
+# Pack into a list under the key "stepwise_bic"
+selected_covariates$stepwise_bic <- selected_vars
+
+# Print the list to see the selected variables
+print(selected_covariates)
+```
+
+### Lasso 
+
+```{r}
+# Combine the response and predictor variables into a matrix for the training data
+X_train_lasso <- model.matrix(acc ~ . - int_no, data = dat_dum_train)[, -1]  # Remove intercept column
+y_train_lasso <- dat_dum_train$acc
+
+# Set up a Lasso model with cross-validation on the training set
+lasso_cv_model <- cv.glmnet(X_train_lasso, y_train_lasso, alpha = 1)  # alpha = 1 for Lasso
+
+# # Plot the cross-validated mean squared error (CV MSE) as a function of log(lambda)
+# plot(lasso_cv_model)
+
+# Identify the lambda value that minimizes the CV MSE
+best_lambda <- lasso_cv_model$lambda.min
+
+# Display the selected lambda and the cross-validated mean squared error (CV MSE)
+cat("Selected Lambda (lambda.min):", best_lambda, "\n")
+cat("Cross-validated Mean Squared Error (CV MSE):", min(lasso_cv_model$cvm), "\n")
+
+# Fit the final Lasso model with the selected lambda on the training set
+final_lasso_model <- glmnet(X_train_lasso, y_train_lasso, alpha = 1, lambda = best_lambda)
+
+# Extract coefficients from the final model
+selected_features <- coef(final_lasso_model)
+
+# Display the selected features
+print(selected_features)
+```
+
+```{r}
+# Extract the selected features from the Lasso model
+selected_vars_lasso <- rownames(selected_features[selected_features[, 1] != 0, , drop = FALSE])[-1]
+
+# Pack into a list under the key "lasso"
+selected_covariates$lasso <- selected_vars_lasso
+print(selected_covariates$lasso)
+```
+
+### Random Forest Importance 
+
+
+```{r}
+# Ensure that 'dat' contains only the variables in 'all_vars' plus the target variable 'acc'
+predictors <- setdiff(colnames(dat), c("acc", "int_no"))
+
+# Train the random forest model
+set.seed(123)  # for reproducibility
+rf_model <- randomForest(acc ~ . - int_no, data = dat_train, importance = TRUE)
+
+# Extract variable importance
+importance_rf <- importance(rf_model)
+
+# Create a data frame of variables and their importance
+variable_importance <- data.frame(Variable = rownames(importance_rf), 
+                                  Importance = importance_rf[, "%IncMSE"])
+variable_importance <- variable_importance[order(variable_importance$Importance, 
+                                                 decreasing = TRUE), ]
+# variable_importance$description <- sapply(variable_importance$Variable, 
+#                                                 function(x) f_get_description(x, varnames_dict))
+rownames(variable_importance) <- NULL
+
+# Calculate the total importance and cumulative importance
+total_importance <- sum(variable_importance$Importance)
+variable_importance$CumulativeImportance <- cumsum(variable_importance$Importance) / total_importance
+
+# Print the sorted variable importance
+print(variable_importance)
+```
+
+In this step, the variable selection is all variables such that the cumulative importance is around 95%. This means that adding more variables will not add much to the model. 
+
+```{r}
+# Determine a cutoff for cumulative importance, e.g., 95%
+cutoff_threshold <- 0.95
+
+# Select variables with cumulative importance below the threshold
+selected_variables <- variable_importance[variable_importance$CumulativeImportance <= cutoff_threshold, ]
+selected_variables <- selected_variables$Variable
+
+# Pack into a list under the key "rf_importance"
+selected_covariates$rf_importance <- selected_variables
+
+# Display selected variables
+print(selected_covariates$rf_importance)
+```
+
+### Correlation Importance (numerical only)
+
+```{r}
+# subset only the correct numerical variables
+numerical_dat <- dat_dum_train[, sapply(dat_dum_train, is.numeric)]
+numerical_dat <- numerical_dat[, !names(numerical_dat) %in% c('int_no')]
+
+# Compute correlations
+correlations_with_acc <- f_compute_correlations(numerical_dat, "acc", standarize = FALSE)
+correlations_with_acc <- correlations_with_acc[rownames(correlations_with_acc) != "acc", ]
+
+# Convert row names to a column
+correlations_with_acc <- correlations_with_acc %>% rownames_to_column(var = "variable")
+
+# Identifying the top n most positively and negatively correlated variables
+top_n = 50
+top_positively_correlated <- correlations_with_acc %>% 
+                             arrange(desc(spearman)) %>%
+                             head(top_n+1)
+
+top_negatively_correlated <- correlations_with_acc %>% 
+                             arrange(spearman) %>%
+                             head(top_n+1)
+
+
+# Filter out rows with negative correlation in positive correlated, and vice versa
+top_positively_correlated <- top_positively_correlated[top_positively_correlated$spearman > 0, ]
+top_negatively_correlated <- top_negatively_correlated[top_negatively_correlated$spearman < 0, ]
+
+# filter the target variable out of the correlations 
+top_positively_correlated <- top_positively_correlated[-1, ]
+top_negatively_correlated <- top_negatively_correlated[-1, ]
+
+# reset the index of both corr tables
+rownames(top_positively_correlated) <- seq(1, nrow(top_positively_correlated))
+rownames(top_negatively_correlated) <- seq(1, nrow(top_negatively_correlated))
+
+# Add a column containing the description of the variables
+top_positively_correlated$description <- sapply(top_positively_correlated$variable, 
+                                                function(x) f_get_description(x, varnames_dict))
+top_negatively_correlated$description <- sapply(top_negatively_correlated$variable, 
+                                                function(x) f_get_description(x, varnames_dict))
+
+# Convert the description column to a character vector if it's not already
+top_positively_correlated$description <- as.character(top_positively_correlated$description)
+top_negatively_correlated$description <- as.character(top_negatively_correlated$description)
+
+# Presenting the tables
+print(top_positively_correlated)
+print(top_negatively_correlated)
+```
+
+Finally,we perform variable selection with respect to the top correlated (in absolute value) variables which have at least 30% Spearman correlation with the target variable `acc`.  
+
+```{r}
+# Combine the positively and negatively correlated variables into one data frame
+combined_correlations <- rbind(top_positively_correlated, top_negatively_correlated)
+
+# Filter for variables with an absolute Spearman correlation of at least 30%
+significant_correlations <- combined_correlations[abs(combined_correlations$spearman) >= 0.15, ]
+
+# Extract the variable names into the selected_covariates list
+selected_covariates$spearman <- significant_correlations$variable
+
+# Print the selected covariates
+print(selected_covariates)
+```
+
+
+# Model Selection
+
+Based on the selected variables, we would like to select the "best" model by fitting a model again to the training data 
+
+
+1. **Benchmark:** A model that predicts the mean of the target variable.
+2. **Basic Linear Regression:** A simple linear regression model with no variable selection.
+3. **Stepwise OLS:** A linear regression model with variable selection using stepwise regression.
+
+1. **Stepwise variables:** Linear/Ridge Regression 
+2. **Lasso variables:** Linear/Lasso Regression
+3. **Random Forest Importance variables:** Random Forest Model
+4. **Spearman Correlation variables:** Linear/Ridge Regression
+5. **No selection:** This will be used for pure random forest on top. 
+
+We will then compare the performance of the models on the validation set.
+
+```{r}
+# Create a dataframe to store performances
+model_performance <- data.frame(
+  Model_Name = character(), 
+  MSE = numeric()  
+)
+```
+
+
+## Benchmark 
+
+
+```{r}
+# Predicting the mean of acc which is very close to zero
+mse = mean((mean(dat$acc) - dat_val$acc)^2)
+model_performance <- rbind(model_performance, list(Model_Name = "Baseline", MSE = mse))
+model_performance
+```
+
+
+## Basic Linear Regression with no variable selection
+
+
+```{r}
+# Fit linear regression model using all predictors
+lm_model <- lm(acc ~ ., data = dat_train)
+
+# Make predictions on the validation set
+predictions <- predict(lm_model, newdata = dat_val)
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the model performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "OLS", MSE = mse))
+```
+
+```{r}
+model_performance
+```
+
+## Stepwise AIC OLS
+
+```{r}
+# Test performance on validation set
+predictions <- predict(stepwise_aic, newdata = dat_val)
+actual <- dat_val$acc
+mse <- mean((predictions - actual)^2)
+
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise-AIC + OLS", MSE = mse))
+```
+
+```{r}
+model_performance
+```
+
+
+## Stepwise AIC OLS
+
+```{r}
+# Test performance on validation set
+predictions <- predict(stepwise_bic, newdata = dat_val)
+actual <- dat_val$acc
+mse <- mean((predictions - actual)^2)
+
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise-BIC + OLS", MSE = mse))
+```
+
+```{r}
+model_performance
+```
+
+## Stepwise-AIC and Lasso 
+
+```{r}
+# Create formula with interactions
+interaction_formula <- as.formula(paste("acc ~", paste(selected_covariates$stepwise_aic, collapse = " + ")))
+
+# Generate model matrix for train and val 
+model_matrix_train <- model.matrix(interaction_formula, data = dat_train)
+model_matrix_val <- model.matrix(interaction_formula, data = dat_val)
+
+# Extract response variable
+y <- dat_train$acc
+
+# Fit Lasso model
+lasso_model <- glmnet(model_matrix_train, y, alpha = 1)
+
+# Make predictions on the validation set
+predictions <- predict(lasso_model, newx =model_matrix_val)
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise AIC + Lasso", MSE = mse))
+```
+
+
+## Stepwise-BIC and Lasso 
+
+```{r}
+# Create formula with interactions
+interaction_formula <- as.formula(paste("acc ~", paste(selected_covariates$stepwise_bic, collapse = " + ")))
+
+# Generate model matrix for train and val 
+model_matrix_train <- model.matrix(interaction_formula, data = dat_train)
+model_matrix_val <- model.matrix(interaction_formula, data = dat_val)
+
+# Extract response variable
+y <- dat_train$acc
+
+# Fit Lasso model
+lasso_model <- glmnet(model_matrix_train, y, alpha = 1)
+
+# Make predictions on the validation set
+predictions <- predict(lasso_model, newx =model_matrix_val)
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise BIC + Lasso", MSE = mse))
+```
+
+
+```{r}
+model_performance
+```
+
+
+## Lasso + OLS
+
+
+```{r}
+# Assuming dat_dum_train and dat_val are your training and validation datasets respectively
+# and selected_covariates$lasso contains the names of the variables selected by Lasso
+
+# Create a formula for the linear model using the variables selected by Lasso
+selected_vars_formula <- paste("acc ~", paste(selected_covariates$lasso, collapse = " + "))
+
+# Fit the linear model on the training data using only the selected variables
+refit_lasso_lm_model <- lm(as.formula(selected_vars_formula), data = dat_dum_train)
+
+# Predictions on the validation set
+predictions_lm <- predict(refit_lasso_lm_model, newdata = dat_dum_val)
+
+# Calculate Mean Squared Error (MSE) on the validation set
+mse_lm <- mean((predictions_lm - dat_val$acc)^2)
+
+# Print the MSE of the refitted linear model
+print(paste("Mean Squared Error (MSE) with Refitted LM:", mse_lm))
+
+# Store the performance in dataset for the refitted model
+model_performance <- rbind(model_performance, list(Model_Name = "Lasso + OLS", MSE = mse_lm))
+```
+
+```{r}
+# Print the model performance
+print(model_performance)
+```
+
+
+## Lasso + Lasso 
+
+```{r}
+# Create formula with Lasso-selected variables
+selected_formula <- as.formula(paste("acc ~", paste(selected_covariates$lasso, collapse = " + ")))
+
+# Generate model matrix for train and validation datasets based on the Lasso-selected variables
+X_train_selected <- model.matrix(selected_formula, data = dat_dum_train)[, -1]  # Remove intercept column
+X_val_selected <- model.matrix(selected_formula, data = dat_dum_val)[, -1]  # Remove intercept column
+
+# Extract response variable for training dataset
+y_train_selected <- dat_dum_train$acc
+
+# Fit Lasso model to the Lasso-selected variables
+final_lasso_model_selected <- cv.glmnet(X_train_selected, y_train_selected, alpha = 1)
+
+# Identify the lambda value that minimizes the CV MSE for the new Lasso model
+best_lambda_selected <- final_lasso_model_selected$lambda.min
+
+# Also get the 1-SE rule lambda 
+best_lambda_selected_1se <- final_lasso_model_selected$lambda.1se
+
+# Make predictions on the validation set using the newly fitted Lasso model
+predictions_selected <- predict(final_lasso_model_selected, newx = X_val_selected, s = best_lambda_selected)
+
+# Also make predictions with the 1-SE rule lambda
+predictions_selected_1se <- predict(final_lasso_model_selected, newx = X_val_selected, s = best_lambda_selected_1se)
+
+# Calculate mean squared error for the validation set for both predictions
+mse_selected <- mean((predictions_selected - dat_dum_val$acc)^2)
+mse_selected_1se <- mean((predictions_selected_1se - dat_dum_val$acc)^2)
+
+# Print the mean squared error for the new Lasso model
+print(paste("Mean Squared Error (MSE) with Lasso-selected variables:", mse_selected))
+print(paste("Mean Squared Error (MSE) with Lasso-selected variables (1-SE rule):", mse_selected_1se))
+
+# Store the performance of the new Lasso model in the dataset for both mse
+model_performance <- rbind(model_performance, list(Model_Name = "Lasso + Lasso", MSE = mse_selected))
+model_performance <- rbind(model_performance, list(Model_Name = "Lasso + Lasso (1-SE rule)", MSE = mse_selected_1se))
+```
+
+```{r}
+# Print the updated model performance
+print(model_performance)
+```
+
+
+## RF Features + Ridge 
+
+- RF Features + Ridge Model 
+
+```{r, warning=FALSE, message=FALSE}
+# Convert training data to matrix with selected covariates from random forest importance
+X_train_rf <- as.matrix(dat_train[, selected_covariates$rf_importance])
+y_train_rf <- dat_train$acc
+
+# Fit Ridge regression model with cross-validation to select lambda
+ridge_model <- cv.glmnet(X_train_rf, y_train_rf, alpha = 0)
+
+# Print the selected lambda value
+best_lambda <- ridge_model$lambda.min
+cat("Selected lambda:", best_lambda, "\n")
+
+# Fit the final Ridge regression model using the selected lambda
+final_ridge_model <- glmnet(X_train_rf, y_train_rf, alpha = 0, lambda = best_lambda)
+
+# Convert validation data to matrix with selected covariates from random forest importance
+X_val <- as.matrix(dat_val[, selected_covariates$rf_importance])
+
+# Make predictions using the fitted Ridge model
+predictions <- predict(final_ridge_model, newx = X_val)
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "RF + Ridge", MSE = mse))
+```
+
+```{r}
+model_performance
+```
+
+
+## Basic Random Forest
+
+- No feature selection 
+- NO hyperparm tuning 
+- Just basics RF
+
+```{r}
+# Fit Random Forest model using all predictors
+rf_model <- randomForest(acc ~ ., data = dat_train)
+
+# Make predictions on the validation set
+predictions <- predict(rf_model, newdata = dat_val)
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "RandomForest", MSE = mse))
+```
+
+```{r}
+model_performance
+```
+
+
+## Tuned RF
+
+- Hyper tuned RF with basic features
+
+```{r}
+# Define train control
+ctrl <- trainControl(method = "cv", number = 5, verbose = TRUE)
+
+# Define the grid for tuning mtry and nodesize parameters
+grid <- expand.grid(mtry = 5:7)
+
+
+# Perform grid search to tune both mtry and nodesize
+rf_model_tuned <- train(acc ~ ., 
+                        data = dat_train[, !(names(dat_train) %in% c("int_no"))], 
+                        method = "rf",
+                        trControl = ctrl, 
+                        tuneGrid = grid,
+                        ntree = 500)
+
+# Plot the tuning results for both mtry and nodesize
+plot(rf_model_tuned)
+
+# Make predictions on the validation set using the tuned model
+preds_rf_tuned <- predict(rf_model_tuned, newdata = dat_val[, !(names(dat_val) %in% c("int_no"))])
+
+# Calculate mean squared error with tuned parameters
+mse_rf_tuned <- mean((preds_rf_tuned - dat_val$acc)^2)
+print(mse_rf_tuned)
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Tuned RF", MSE = mse_rf_tuned))
+```
+```{r}
+model_performance
+```
+
+
+## Spearman Based Variables 
+
+```{r}
+# Fit Ordinary Least Squares (OLS) model using selected covariates based on Spearman correlation
+lm_model <- lm(dat_dum_train$acc ~ ., data = dat_dum_train[, selected_covariates$spearman])
+
+# Make predictions on the validation set
+predictions <- predict(lm_model, newdata = dat_dum_val)
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "OLS+Corr", MSE = mse))
+```
+
+
+## XGBoost 
+
+**Note:** The following was the code used to tune the XGBoost model. However, it was not run in this notebook due to the time it takes to run. 
+
+
+```{r, eval=FALSE}
+# param to run the code 
+run_xgb_tuning = FALSE 
+
+# Tuning XGBoost model
+if(run_xgb_tuning){
+  # Define train control
+  ctrl <- trainControl(method = "cv", number = 5, allowParallel = TRUE, verbose = TRUE)
+  
+  # Define the grid for tuning parameters
+  grid <- expand.grid(nrounds = c(100, 200, 300),
+                      max_depth = c(3, 6, 9),
+                      eta = c(0.01, 0.1, 0.3),
+                      gamma = c(0, 1, 5),
+                      colsample_bytree = c(0.5, 0.7, 1),
+                      min_child_weight = c(3, 5),
+                      subsample = c(0.5, 0.7))
+  
+  # Perform grid search to tune parameters
+  xgb_model_tuned <- train(acc ~ ., 
+                           data = dat_train[, !(names(dat_train) %in% c("acc", "int_no"))], 
+                           method = "xgbTree",
+                           trControl = ctrl, 
+                           tuneGrid = grid)
+  
+  # Make predictions on the validation set using the tuned model
+  preds_xgb_tuned <- predict(xgb_model_tuned, newdata = dat_val[, !(names(dat_val) %in% c("acc", "int_no"))])
+  
+  # Calculate mean squared error with tuned parameters
+  mse_xgb_tuned <- mean((preds_xgb_tuned - dat_val$acc)^2)
+  print(mse_xgb_tuned)
+  
+  # Store the performance in dataset
+  model_performance <- rbind(model_performance, list(Model_Name = "Tuned XGBoost", MSE = mse_xgb_tuned))
+}
+```
+
+
+FIt the XGBoost model with optimal hypertuned parameters:
+
+
+```{r}
+library(xgboost)
+
+# Define the train and val matrices without acc or int_no
+train_matrix <- as.matrix(dat_dum_train[, !(names(dat_dum_train) %in% c("acc", "int_no"))])
+val_matrix <- as.matrix(dat_dum_val[, !(names(dat_dum_val) %in% c("acc", "int_no"))])
+
+# Define parameters for the XGBoost model
+xgb_params <- list(max_depth = 6,
+                   eta = 0.01,
+                   gamma = 5,
+                   colsample_bytree = 1,
+                   min_child_weight = 5,
+                   subsample = 0.5)
+
+# Train XGBoost model with tuned parameters
+xgb_model_tuned <- xgboost(data = train_matrix, 
+                           label = dat_dum_train$acc,
+                           params = xgb_params,
+                           nrounds = 300,  # Specify nrounds directly
+                           nthread = 1,    # Use only one core
+                           verbose = 0)    # Suppress XGBoost warnings
+
+# Make predictions on the validation set
+preds_xgb_tuned <- predict(xgb_model_tuned, newdata = val_matrix)
+
+# Calculate mean squared error
+mse_xgb_tuned <- mean((preds_xgb_tuned - dat_dum_val$acc)^2)
+
+# Print MSE
+print(paste("Mean Squared Error (MSE) for Tuned XGBoost:", mse_xgb_tuned))
+
+# Store the performance in the dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Tuned XGBoost", MSE = mse_xgb_tuned))
+```
+
+### All performances 
+
+
+```{r}
+# Add the RMSE by taking the square root of the MSE 
+model_performance$RMSE <- sqrt(model_performance$MSE)
+
+# display overall performance
+print(model_performance[order(model_performance$RMSE), ])
+```
+
+
+# Ranking the Intersections 
+
+To perform the ranking, we use the best model based on MSE. 
+
+```{r}
+# Refit the linear model on the full data using only the selected variables
+refit_lasso_lm_full_model <- lm(as.formula(selected_vars_formula), data = dat_dum)
+
+# Predictions on the full dataset
+predictions_full_lm <- predict(refit_lasso_lm_full_model, newdata = dat_dum)
+
+# Create a dataframe with predictions, 'int_no', and original 'acc'
+predictions_df <- data.frame(int_no = dat_dum$int_no,
+                             acc = dat_dum$acc,
+                             predicted_acc = predictions_full_lm)
+
+# Perform the join with inter_names on int_no
+final_df <- merge(predictions_df, inter_names, by = "int_no")
+
+# Sort final_df by predicted_acc in descending order
+final_df <- final_df[order(final_df$predicted_acc, decreasing = TRUE), ]
+
+# Add ranking column to final_df
+final_df$ranking <- seq_len(nrow(final_df))
+
+# Remae x to latitude and y to longitude
+final_df <- final_df %>% rename(latitude = x, longitude = y)
+
+# Print the final dataframe
+head(final_df, 10)
+dim(final_df)
+```
+
+## Create the json file with the rankings 
+
+```{r}
+# Subset the final_df to include only int_no and ranking
+risk_rank_df <- final_df[, c("int_no", "ranking")]
+
+# Save the dataframe to a .csv file
+write.csv(risk_rank_df, here("data_clean", "intersection_risk_rank.csv"), row.names = FALSE)
+
+# display the saved file 
+head(risk_rank_df)
+```
+
+
