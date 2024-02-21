@@ -11,13 +11,13 @@ header-includes:
 - \fancyfoot[CO,CE]{Notes by Hair Parra}
 - \fancyfoot[LE,RO]{\thepage}
 output:
-  html_document:
-    df_print: paged
   pdf_document:
     extra_dependencies:
     - array
     - amsmath
     - booktabs
+  html_document:
+    df_print: paged
 always_allow_html: true
 geometry: margin=1.3cm
 ---
@@ -62,6 +62,7 @@ library("MASS")
 library("glmnet")
 library("caret")
 library("forcats")
+library("xgboost")
 
 # Custom scripts  
 source(here("functions", "utils.R"))
@@ -317,11 +318,11 @@ print(selected_covariates)
 
 ```{r}
 # Combine the response and predictor variables into a matrix for the training data
-X_train <- model.matrix(acc ~ . - int_no, data = dat_dum_train)[, -1]  # Remove intercept column
-y_train <- dat_dum_train$acc
+X_train_lasso <- model.matrix(acc ~ . - int_no, data = dat_dum_train)[, -1]  # Remove intercept column
+y_train_lasso <- dat_dum_train$acc
 
 # Set up a Lasso model with cross-validation on the training set
-lasso_cv_model <- cv.glmnet(X_train, y_train, alpha = 1)  # alpha = 1 for Lasso
+lasso_cv_model <- cv.glmnet(X_train_lasso, y_train_lasso, alpha = 1)  # alpha = 1 for Lasso
 
 # # Plot the cross-validated mean squared error (CV MSE) as a function of log(lambda)
 # plot(lasso_cv_model)
@@ -334,7 +335,7 @@ cat("Selected Lambda (lambda.min):", best_lambda, "\n")
 cat("Cross-validated Mean Squared Error (CV MSE):", min(lasso_cv_model$cvm), "\n")
 
 # Fit the final Lasso model with the selected lambda on the training set
-final_lasso_model <- glmnet(X_train, y_train, alpha = 1, lambda = best_lambda)
+final_lasso_model <- glmnet(X_train_lasso, y_train_lasso, alpha = 1, lambda = best_lambda)
 
 # Extract coefficients from the final model
 selected_features <- coef(final_lasso_model)
@@ -507,6 +508,7 @@ model_performance
 
 ## Basic Linear Regression with no variable selection
 
+
 ```{r}
 # Fit linear regression model using all predictors
 lm_model <- lm(acc ~ ., data = dat_train)
@@ -539,7 +541,7 @@ mse <- mean((predictions - actual)^2)
 print(paste("Mean Squared Error (MSE):", mse))
 
 # Store the performance in dataset
-model_performance <- rbind(model_performance, list(Model_Name = "Stepwise-AIC OLS", MSE = mse))
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise-AIC + OLS", MSE = mse))
 ```
 
 ```{r}
@@ -558,11 +560,40 @@ mse <- mean((predictions - actual)^2)
 print(paste("Mean Squared Error (MSE):", mse))
 
 # Store the performance in dataset
-model_performance <- rbind(model_performance, list(Model_Name = "Stepwise-BIC OLS", MSE = mse))
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise-BIC + OLS", MSE = mse))
 ```
 
 ```{r}
 model_performance
+```
+
+## Stepwise-AIC and Lasso 
+
+```{r}
+# Create formula with interactions
+interaction_formula <- as.formula(paste("acc ~", paste(selected_covariates$stepwise_aic, collapse = " + ")))
+
+# Generate model matrix for train and val 
+model_matrix_train <- model.matrix(interaction_formula, data = dat_train)
+model_matrix_val <- model.matrix(interaction_formula, data = dat_val)
+
+# Extract response variable
+y <- dat_train$acc
+
+# Fit Lasso model
+lasso_model <- glmnet(model_matrix_train, y, alpha = 1)
+
+# Make predictions on the validation set
+predictions <- predict(lasso_model, newx =model_matrix_val)
+
+# Calculate mean squared error
+mse <- mean((predictions - dat_val$acc)^2)
+
+# Print the mean squared error
+print(paste("Mean Squared Error (MSE):", mse))
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise AIC + Lasso", MSE = mse))
 ```
 
 
@@ -592,7 +623,7 @@ mse <- mean((predictions - dat_val$acc)^2)
 print(paste("Mean Squared Error (MSE):", mse))
 
 # Store the performance in dataset
-model_performance <- rbind(model_performance, list(Model_Name = "Stepwise Lasso", MSE = mse))
+model_performance <- rbind(model_performance, list(Model_Name = "Stepwise BIC + Lasso", MSE = mse))
 ```
 
 
@@ -603,48 +634,122 @@ model_performance
 
 ## Lasso + OLS
 
-Lasso + OLS 
 
 ```{r}
-predictions <- predict(final_lasso_model, newx = model.matrix(acc ~ . - int_no, data = dat_val)[, -1], s = best_lambda)
+# Assuming dat_dum_train and dat_val are your training and validation datasets respectively
+# and selected_covariates$lasso contains the names of the variables selected by Lasso
 
-mse <- mean((predictions - dat_val$acc)^2)
+# Create a formula for the linear model using the variables selected by Lasso
+selected_vars_formula <- paste("acc ~", paste(selected_covariates$lasso, collapse = " + "))
 
-print(paste("Mean Squared Error (MSE):", mse))
+# Fit the linear model on the training data using only the selected variables
+refit_lasso_lm_model <- lm(as.formula(selected_vars_formula), data = dat_dum_train)
 
-# Store the performance in dataset
-model_performance <- rbind(model_performance, list(Model_Name = "Simple Lasso", MSE = mse))
+# Predictions on the validation set
+predictions_lm <- predict(refit_lasso_lm_model, newdata = dat_dum_val)
+
+# Calculate Mean Squared Error (MSE) on the validation set
+mse_lm <- mean((predictions_lm - dat_val$acc)^2)
+
+# Print the MSE of the refitted linear model
+print(paste("Mean Squared Error (MSE) with Refitted LM:", mse_lm))
+
+# Store the performance in dataset for the refitted model
+model_performance <- rbind(model_performance, list(Model_Name = "Lasso + OLS", MSE = mse_lm))
+```
+
+```{r}
+# Print the model performance
+print(model_performance)
 ```
 
 
-## Feature importance from RF
+## Lasso + Lasso 
+
+```{r}
+# Create formula with Lasso-selected variables
+selected_formula <- as.formula(paste("acc ~", paste(selected_covariates$lasso, collapse = " + ")))
+
+# Generate model matrix for train and validation datasets based on the Lasso-selected variables
+X_train_selected <- model.matrix(selected_formula, data = dat_dum_train)[, -1]  # Remove intercept column
+X_val_selected <- model.matrix(selected_formula, data = dat_dum_val)[, -1]  # Remove intercept column
+
+# Extract response variable for training dataset
+y_train_selected <- dat_dum_train$acc
+
+# Fit Lasso model to the Lasso-selected variables
+final_lasso_model_selected <- cv.glmnet(X_train_selected, y_train_selected, alpha = 1)
+
+# Identify the lambda value that minimizes the CV MSE for the new Lasso model
+best_lambda_selected <- final_lasso_model_selected$lambda.min
+
+# Also get the 1-SE rule lambda 
+best_lambda_selected_1se <- final_lasso_model_selected$lambda.1se
+
+# Make predictions on the validation set using the newly fitted Lasso model
+predictions_selected <- predict(final_lasso_model_selected, newx = X_val_selected, s = best_lambda_selected)
+
+# Also make predictions with the 1-SE rule lambda
+predictions_selected_1se <- predict(final_lasso_model_selected, newx = X_val_selected, s = best_lambda_selected_1se)
+
+# Calculate mean squared error for the validation set for both predictions
+mse_selected <- mean((predictions_selected - dat_dum_val$acc)^2)
+mse_selected_1se <- mean((predictions_selected_1se - dat_dum_val$acc)^2)
+
+# Print the mean squared error for the new Lasso model
+print(paste("Mean Squared Error (MSE) with Lasso-selected variables:", mse_selected))
+print(paste("Mean Squared Error (MSE) with Lasso-selected variables (1-SE rule):", mse_selected_1se))
+
+# Store the performance of the new Lasso model in the dataset for both mse
+model_performance <- rbind(model_performance, list(Model_Name = "Lasso + Lasso", MSE = mse_selected))
+model_performance <- rbind(model_performance, list(Model_Name = "Lasso + Lasso (1-SE rule)", MSE = mse_selected_1se))
+```
+
+```{r}
+# Print the updated model performance
+print(model_performance)
+```
+
+
+## RF Features + Ridge 
 
 - RF Features + Ridge Model 
 
 ```{r}
-X_train_rf <- as.matrix(dat_train[,selected_covariates$rf_importance])
-ridge_model <- cv.glmnet(X_train_rf, y_train, alpha = 0)
+# Convert training data to matrix with selected covariates from random forest importance
+X_train_rf <- as.matrix(dat_train[, selected_covariates$rf_importance])
+y_train_rf <- dat_train$acc
+
+# Fit Ridge regression model with cross-validation to select lambda
+ridge_model <- cv.glmnet(X_train_rf, y_train_rf, alpha = 0)
 
 # Print the selected lambda value
 best_lambda <- ridge_model$lambda.min
 cat("Selected lambda:", best_lambda, "\n")
 
 # Fit the final Ridge regression model using the selected lambda
-final_ridge_model <- glmnet(X_train_rf, y_train, alpha = 0, lambda = best_lambda)
+final_ridge_model <- glmnet(X_train_rf, y_train_rf, alpha = 0, lambda = best_lambda)
 
-# Print the final Ridge regression model
-X_val <- as.matrix(dat_val[,selected_covariates$rf_importance])
+# Convert validation data to matrix with selected covariates from random forest importance
+X_val <- as.matrix(dat_val[, selected_covariates$rf_importance])
 
 # Make predictions using the fitted Ridge model
 predictions <- predict(final_ridge_model, newx = X_val)
 
+# Calculate mean squared error
 mse <- mean((predictions - dat_val$acc)^2)
 
+# Print the mean squared error
 print(paste("Mean Squared Error (MSE):", mse))
 
 # Store the performance in dataset
-model_performance <- rbind(model_performance, list(Model_Name = "Ridge+RF_feature", MSE = mse))
+model_performance <- rbind(model_performance, list(Model_Name = "RF + Ridge", MSE = mse))
 ```
+
+```{r}
+model_performance
+```
+
 
 ## Basic Random Forest
 
@@ -653,58 +758,87 @@ model_performance <- rbind(model_performance, list(Model_Name = "Ridge+RF_featur
 - Just basics RF
 
 ```{r}
+# Fit Random Forest model using all predictors
 rf_model <- randomForest(acc ~ ., data = dat_train)
 
+# Make predictions on the validation set
 predictions <- predict(rf_model, newdata = dat_val)
 
+# Calculate mean squared error
 mse <- mean((predictions - dat_val$acc)^2)
 
+# Print the mean squared error
 print(paste("Mean Squared Error (MSE):", mse))
 
 # Store the performance in dataset
 model_performance <- rbind(model_performance, list(Model_Name = "RandomForest", MSE = mse))
 ```
 
+```{r}
+model_performance
+```
+
+
 ## Tuned RF
 
 - Hyper tuned RF with basic features
 
 ```{r}
-ctrl <- trainControl(method = "cv", number = 5, verbose=TRUE)
+# Define train control
+ctrl <- trainControl(method = "cv", number = 5, verbose = TRUE)
 
-grid <- expand.grid(.mtry=c(5:7))
+# Define the grid for tuning mtry and nodesize parameters
+grid <- expand.grid(mtry = 5:7)
 
-# Perform grid search
-rf_model <- train(acc ~ ., data = dat_train, method = "rf",
-                  trControl = ctrl, tuneGrid = grid,
-                  nodesize = 5,ntree = 500)
 
-plot(rf_model)
+# Perform grid search to tune both mtry and nodesize
+rf_model_tuned <- train(acc ~ ., 
+                        data = dat_train[, !(names(dat_train) %in% c("int_no"))], 
+                        method = "rf",
+                        trControl = ctrl, 
+                        tuneGrid = grid,
+                        ntree = 500)
 
-# Make predictions
-predictions <- predict(rf_model, newdata = dat_val)
-mse <- mean((predictions - dat_val$acc)^2)
-print(mse)
+# Plot the tuning results for both mtry and nodesize
+plot(rf_model_tuned)
 
-model_performance <- rbind(model_performance, list(Model_Name = "Tuned RF", MSE = mse))
 
-print(mean((predict(rf_model, newdata = dat_train) - dat_train$acc)^2))
+# Make predictions on the validation set using the tuned model
+preds_rf_tuned <- predict(rf_model_tuned, newdata = dat_val[, !(names(dat_val) %in% c("int_no"))])
+
+# Calculate mean squared error with tuned parameters
+mse_rf_tuned <- mean((preds_rf_tuned - dat_val$acc)^2)
+print(mse_rf_tuned)
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Tuned RF", MSE = mse_rf_tuned))
 ```
-print(model_performance)
+
+```{r}
+model_performance
+
+```
 
 
 ## Spearman Based Variables 
 
 ```{r}
-lm_model <- lm(dat_train$acc ~ ., data =dat_train[,selected_covariates$spearman])
-predictions <- predict(lm_model, newdata = dat_val)
+# Fit Ordinary Least Squares (OLS) model using selected covariates based on Spearman correlation
+lm_model <- lm(dat_dum_train$acc ~ ., data = dat_dum_train[, selected_covariates$spearman])
+
+# Make predictions on the validation set
+predictions <- predict(lm_model, newdata = dat_dum_val)
+
+# Calculate mean squared error
 mse <- mean((predictions - dat_val$acc)^2)
 
+# Print the mean squared error
 print(paste("Mean Squared Error (MSE) on validation set:", mse))
 
 # Store the performance in dataset
 model_performance <- rbind(model_performance, list(Model_Name = "OLS+Corr", MSE = mse))
 ```
+
 
 ## Basic Linear Regression with no variable selection + log transformation of target
 
@@ -886,12 +1020,137 @@ print(mean((predict(gbm_model, newdata = dat_train, n.trees = 100, type = "respo
 
 
 
+
+## XGBoost 
+
+
+**Note:** The following was the code used to tune the XGBoost model. However, it was not run in this notebook due to the time it takes to run. 
+
+
+```{r, eval=FALSE}
+# Define train control
+ctrl <- trainControl(method = "cv", number = 5, allowParallel = TRUE, verbose = TRUE)
+
+# Define the grid for tuning parameters
+grid <- expand.grid(nrounds = c(100, 200, 300),
+                    max_depth = c(3, 6, 9),
+                    eta = c(0.01, 0.1, 0.3),
+                    gamma = c(0, 1, 5),
+                    colsample_bytree = c(0.5, 0.7, 1),
+                    min_child_weight = c(3, 5),
+                    subsample = c(0.5, 0.7))
+
+# Perform grid search to tune parameters
+xgb_model_tuned <- train(acc ~ ., 
+                         data = dat_train[, !(names(dat_train) %in% c("acc", "int_no"))], 
+                         method = "xgbTree",
+                         trControl = ctrl, 
+                         tuneGrid = grid)
+
+# Make predictions on the validation set using the tuned model
+preds_xgb_tuned <- predict(xgb_model_tuned, newdata = dat_val[, !(names(dat_val) %in% c("acc", "int_no"))])
+
+# Calculate mean squared error with tuned parameters
+mse_xgb_tuned <- mean((preds_xgb_tuned - dat_val$acc)^2)
+print(mse_xgb_tuned)
+
+# Store the performance in dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Tuned XGBoost", MSE = mse_xgb_tuned))
+```
+
+
+FIt the XGBoost model with optimal hypertuned parameters:
+
+
+```{r}
+library(xgboost)
+
+# Define the train and val matrices without acc or int_no
+train_matrix <- as.matrix(dat_dum_train[, !(names(dat_dum_train) %in% c("acc", "int_no"))])
+val_matrix <- as.matrix(dat_dum_val[, !(names(dat_dum_val) %in% c("acc", "int_no"))])
+
+# Define parameters for the XGBoost model
+xgb_params <- list(max_depth = 6,
+                   eta = 0.01,
+                   gamma = 5,
+                   colsample_bytree = 1,
+                   min_child_weight = 5,
+                   subsample = 0.5)
+
+# Train XGBoost model with tuned parameters
+xgb_model_tuned <- xgboost(data = train_matrix, 
+                           label = dat_dum_train$acc,
+                           params = xgb_params,
+                           nrounds = 300,  # Specify nrounds directly
+                           nthread = 1,    # Use only one core
+                           verbose = 0)    # Suppress XGBoost warnings
+
+# Make predictions on the validation set
+preds_xgb_tuned <- predict(xgb_model_tuned, newdata = val_matrix)
+
+# Calculate mean squared error
+mse_xgb_tuned <- mean((preds_xgb_tuned - dat_dum_val$acc)^2)
+
+# Print MSE
+print(paste("Mean Squared Error (MSE) for Tuned XGBoost:", mse_xgb_tuned))
+
+# Store the performance in the dataset
+model_performance <- rbind(model_performance, list(Model_Name = "Tuned XGBoost", MSE = mse_xgb_tuned))
+```
+
 ### All performances 
 
 
 ```{r}
-print(model_performance[order(-model_performance$MSE), ])
+# Add the RMSE by taking the square root of the MSE 
+model_performance$RMSE <- sqrt(model_performance$MSE)
+
+# display overall performance
+print(model_performance[order(model_performance$RMSE), ])
 ```
 
+
+
+# Ranking 
+
+To perform the ranking, we use the best model based on MSE. 
+
+```{r}
+# Refit the linear model on the full data using only the selected variables
+refit_lasso_lm_full_model <- lm(as.formula(selected_vars_formula), data = dat_dum)
+
+# Predictions on the full dataset
+predictions_full_lm <- predict(refit_lasso_lm_full_model, newdata = dat_dum)
+
+# Create a dataframe with predictions, 'int_no', and original 'acc'
+predictions_df <- data.frame(int_no = dat_dum$int_no,
+                             acc = dat_dum$acc,
+                             predicted_acc = predictions_full_lm)
+
+# Perform the join with inter_names on int_no
+final_df <- merge(predictions_df, inter_names, by = "int_no")
+
+# Sort final_df by predicted_acc in descending order
+final_df <- final_df[order(final_df$predicted_acc, decreasing = TRUE), ]
+
+# Add ranking column to final_df
+final_df$ranking <- seq_len(nrow(final_df))
+
+# Remae x to latitude and y to longitude
+final_df <- final_df %>% rename(latitude = x, longitude = y)
+
+# Print the final dataframe
+final_df
+```
+
+## Create the json file with the rankings 
+
+```{r}
+# Subset the final_df to include only int_no and ranking
+risk_rank_df <- final_df[, c("int_no", "ranking")]
+
+# Save the dataframe to a .csv file
+write.csv(risk_rank_df, here("intersection_risk_rank.csv"), row.names = FALSE)
+```
 
 
