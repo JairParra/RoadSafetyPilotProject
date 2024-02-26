@@ -31,6 +31,7 @@ f_load_packages <- function() {
     "sqldf", 
     "car", 
     "zoo", 
+    "gbm",
     "rockchalk", 
     "xgboost", 
     "MASS", 

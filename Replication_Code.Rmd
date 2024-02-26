@@ -1250,13 +1250,12 @@ model_performance <- rbind(model_performance, list(Model_Name = "Tuned XGBoost",
 
 ## GLM poisson L1
 
-```{r}
-library(glmnet)
-
-# Fit Poisson regression model with L1 regularization
+```{r, warning=FALSE, message=FALSE}
+# Transform train and val matrices into matrix format 
 dat_train_X_matrix = as.matrix(dat_train[, !names(dat_train) %in% c('acc')])
 dat_val_X_matrix = as.matrix(dat_val[, !names(dat_val) %in% c('acc')])
 
+# Fit Poisson regression model with L1 regularization 
 alpha <- 1
 cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha)
 
@@ -1309,8 +1308,13 @@ model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L1 
 ```
 ## GLM poisson L2 on top of L1 selection
 
-```{r}
+
+```{r, warning=FALSE}
+
+# decide on the lambda value
 alpha <- 2
+
+# fit the GLM on top of the L1 selection
 cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha)
 
 # Select the best lambda based on cross-validation
@@ -1334,9 +1338,13 @@ model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L1+
 ```
 
 ### Boosting of glm poisson
+
+
 ```{r}
-library(xgboost)
+# set for replication 
 set.seed(123)
+
+# Fit a boosted Poisson model 
 gbm_model <- gbm(
     formula = acc ~ .,
     distribution = "poisson",
@@ -1346,8 +1354,8 @@ gbm_model <- gbm(
     interaction.depth = 1 
   )
 
-  # Make predictions on the validation set
-  predictions <- predict(gbm_model, newdata = dat_val, n.trees = 100, type = "response")
+# Make predictions on the validation set
+predictions <- predict(gbm_model, newdata = dat_val, n.trees = 100, type = "response")
   
 mse_glm_boost <- mean((predictions - dat_val$acc)^2)
 
@@ -1371,11 +1379,15 @@ model_performance$RMSE <- sqrt(model_performance$MSE)
 # display overall performance
 print(model_performance[order(model_performance$MSE), ])
 ```
+
 In sample performance of the best model
+
 ```{r}
+# Show the performance of the best model on the training set
 print(mean((predict(refit_lasso_lm_model, newdata = dat_dum_train) - dat_train$acc)^2))
 ```
-We see the effect of selection bias as well as the fact that our model is not overfitting the trainning dataset.
+
+We see the effect of selection bias as well as the fact that our model is not overfitting the training dataset, since the validation error is lower than the training error. 
 
 
 # Ranking the Intersections 
@@ -1408,12 +1420,20 @@ final_df <- final_df %>% rename(latitude = x, longitude = y)
 
 # Print the final dataframe
 head(final_df, 10)
-dim(final_df)
+```
 
+```{r}
+dim(final_df)
+```
+
+```{r}
+# Calculate the spearman correlation between 'acc' and 'predicted_acc'
 spearman_rank_cor <- cor(final_df$acc, final_df$predicted_acc, method = "spearman")
 print(spearman_rank_cor)
 ```
+
 This suggests a strong positive monotonic relationship between accidents and predicted accidents. Thus, ranking by accident or dangerousness would be similar.
+
 This is what we expect.
 
 ## Create the json file with the rankings 
