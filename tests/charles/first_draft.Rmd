@@ -132,7 +132,7 @@ dat<- f_clean_data(dat)
 
 dat$date_
 dat$missing_date_ind = factor(ifelse(dat$date_ == "",1,0))
-sum(dat$missing_date_ind)
+ sum(dat$missing_date_ind)
 
 model <- lm(acc ~ missing_date_ind, 
              data = dat)

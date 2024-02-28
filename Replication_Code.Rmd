@@ -1333,9 +1333,45 @@ model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L1+
 
 ```
 
+hist(log(dat$acc))
+
+# Relaxed lasso
+```{r}
+dat_train_X_matrix = scale(as.matrix(dat_dum_train[, !names(dat_dum_train) %in% c('acc')]))
+
+dat_val_X_matrix <- scale((as.matrix(dat_dum_val[, !names(dat_dum_val) %in% c('acc')])),
+center = attr(dat_train_X_matrix, "scaled:center"), 
+scale = attr(dat_train_X_matrix, "scaled:scale"))
+
+dat_train_X_matrix <- cbind(Intercept = 1, dat_train_X_matrix)
+dat_val_X_matrix <- cbind(Intercept = 1, dat_val_X_matrix)
+
+alpha <- 0.5
+cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_dum_train$acc, family = "gaussian", alpha = alpha, relax= TRUE)
+
+plot(cvfit, se.bands = FALSE)
+
+print(cvfit)
+
+predictions= predict(cvfit, newx = dat_val_X_matrix, s = 'lambda.1se', gamma = 'gamma.1se')
+
+predictions_NN <- pmax(predictions, 0)
+
+mse <- mean((predictions_NN - dat_dum_val$acc)^2)
+
+print(paste("Mean Squared Error (MSE) on validation set:", mse))
+
+# Store the model performance in dataset
+#model_performance <- rbind(model_performance, list(Model_Name = "relaxed lasso", MSE = mse))
+
+```
+
+
+
+
 ### Boosting of glm poisson
 ```{r}
-library(xgboost)
+library(gbm)
 set.seed(123)
 gbm_model <- gbm(
     formula = acc ~ .,
