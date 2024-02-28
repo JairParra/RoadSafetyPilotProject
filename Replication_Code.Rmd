@@ -477,18 +477,18 @@ dat_val   <- dat[-trainIndex,]
 cat("Dimensions of dat_train:", dim(dat_train), "\n")
 cat("Dimensions of dat_val:", dim(dat_val), "\n")
 
-# Repeat for dat_dum if necessary
-trainIndex_dum <- createDataPartition(dat_dum$acc,
-                                      p = .8, 
-                                      list = FALSE, 
-                                      times = 1)
-dat_dum_train <- dat_dum[ trainIndex_dum,]
-dat_dum_val   <- dat_dum[-trainIndex_dum,]
+
+dat_dum_train <- dat_dum[ trainIndex,]
+dat_dum_val   <- dat_dum[-trainIndex,]
 
 # Print dimensions of the dat_dum_train and dat_dum_val
 cat("Dimensions of dat_dum_train:", dim(dat_dum_train), "\n")
 cat("Dimensions of dat_dum_val:", dim(dat_dum_val), "\n")
+
+identical(dat_dum_val$acc, dat_val$acc)
 ```
+
+
 
 
 ## Cleanup 
@@ -666,7 +666,7 @@ final_lasso_model <- glmnet(X_train_lasso, y_train_lasso, alpha = 1, lambda = be
 selected_features <- coef(final_lasso_model)
 
 # Display the selected features
-print(selected_features)
+#print(selected_features)
 ```
 
 ```{r}
@@ -675,7 +675,7 @@ selected_vars_lasso <- rownames(selected_features[selected_features[, 1] != 0, ,
 
 # Pack into a list under the key "lasso"
 selected_covariates$lasso <- selected_vars_lasso
-print(selected_covariates$lasso)
+#print(selected_covariates$lasso)
 ```
 
 ### Random Forest Importance 
@@ -1254,22 +1254,28 @@ model_performance <- rbind(model_performance, list(Model_Name = "Tuned XGBoost",
 library(glmnet)
 
 # Fit Poisson regression model with L1 regularization
-dat_train_X_matrix = as.matrix(dat_train[, !names(dat_train) %in% c('acc')])
-dat_val_X_matrix = as.matrix(dat_val[, !names(dat_val) %in% c('acc')])
+dat_train_X_matrix = scale(as.matrix(dat_dum_train[, !names(dat_dum_train) %in% c('acc')]))
+
+dat_val_X_matrix <- scale((as.matrix(dat_dum_val[, !names(dat_dum_val) %in% c('acc')])),
+center = attr(dat_train_X_matrix, "scaled:center"), 
+scale = attr(dat_train_X_matrix, "scaled:scale"))
+
+dat_train_X_matrix <- cbind(Intercept = 1, dat_train_X_matrix)
+dat_val_X_matrix <- cbind(Intercept = 1, dat_val_X_matrix)
 
 alpha <- 1
-cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha)
+cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_dum_train$acc, family = "poisson", alpha = alpha)
 
 # Select the best lambda based on cross-validation
 best_lambda <- cvfit$lambda.min
 
 # Refit the model with the selected lambda
-fit <- glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha, lambda = best_lambda)
+fit <- glmnet(x = dat_train_X_matrix, y = dat_dum_train$acc, family = "poisson", alpha = alpha, lambda = best_lambda)
 
 predictions <-predict(fit, newx = dat_val_X_matrix, type = 'response')
 
 # Calculate mean squared error
-mse_glm_poi_l1 <- mean((predictions - dat_val$acc)^2)
+mse_glm_poi_l1 <- mean((predictions - dat_dum_val$acc)^2)
 
 # Print the mean squared error
 print(paste("Mean Squared Error (MSE) for GLM L1:", mse_glm_poi_l1))
@@ -1278,6 +1284,7 @@ print(paste("Mean Squared Error (MSE) for GLM L1:", mse_glm_poi_l1))
 model_performance <- rbind(model_performance, list(Model_Name = "GLM Poisson L1", MSE = mse_glm_poi_l1))
 
 ```
+
 
 GLM Poisson Refit
 ```{r}
@@ -1289,12 +1296,14 @@ coefficients <- coef(fit, s = "lambda.min")
 selected_variables <- names(which(coefficients[-1, ] != 0))
 
 # Extract the corresponding columns from the original data
-selected_data <- dat_train[, c("acc", selected_variables)]
+selected_data <- dat_train_X_matrix[, selected_variables]
+#selected_data = cbind(selected_data, 'acc' = dat_train$acc)
+#selected_data = as.data.frame(selected_data)
 
 # Fit a Poisson regression model without regularization using selected variables
-final_glm_model <- glm(acc ~ ., data = selected_data, family = "poisson")
+final_glm_model = glmnet(x = selected_data, y = dat_train$acc, family = "poisson", alpha = 0, lambda = 0)
 
-predictions <- predict(final_glm_model, newdata = dat_val, type = "response")
+predictions <- predict(final_glm_model, newx = dat_val_X_matrix[, selected_variables], type = "response")
 
 # Calculate mean squared error
 mse_poi_l1_refit <- mean((predictions - dat_val$acc)^2)
@@ -1310,17 +1319,17 @@ model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L1 
 ## GLM poisson L2 on top of L1 selection
 
 ```{r}
-alpha <- 2
-cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha)
+alpha <- 0
+cvfit <- cv.glmnet(x = selected_data, y = dat_train$acc, family = "poisson", alpha = alpha)
 
 # Select the best lambda based on cross-validation
 best_lambda <- cvfit$lambda.min
 
 # Refit the model with the selected lambda
-fit <- glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha, lambda = best_lambda)
+fit <- glmnet(x = selected_data, y = dat_train$acc, family = "poisson", alpha = alpha, lambda = best_lambda)
 
 
-predictions <-predict(fit, newx = dat_val_X_matrix, type = 'response')
+predictions <-predict(fit, newx = dat_val_X_matrix[, selected_variables], type = 'response')
 
 # Calculate mean squared error
 mse <- mean((predictions - dat_val$acc)^2)
@@ -1333,21 +1342,12 @@ model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L1+
 
 ```
 
-hist(log(dat$acc))
+
 
 # Relaxed lasso
 ```{r}
-dat_train_X_matrix = scale(as.matrix(dat_dum_train[, !names(dat_dum_train) %in% c('acc')]))
-
-dat_val_X_matrix <- scale((as.matrix(dat_dum_val[, !names(dat_dum_val) %in% c('acc')])),
-center = attr(dat_train_X_matrix, "scaled:center"), 
-scale = attr(dat_train_X_matrix, "scaled:scale"))
-
-dat_train_X_matrix <- cbind(Intercept = 1, dat_train_X_matrix)
-dat_val_X_matrix <- cbind(Intercept = 1, dat_val_X_matrix)
-
-alpha <- 0.5
-cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_dum_train$acc, family = "gaussian", alpha = alpha, relax= TRUE)
+alpha <- 1
+cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha, relax= TRUE)
 
 plot(cvfit, se.bands = FALSE)
 
@@ -1357,12 +1357,13 @@ predictions= predict(cvfit, newx = dat_val_X_matrix, s = 'lambda.1se', gamma = '
 
 predictions_NN <- pmax(predictions, 0)
 
-mse <- mean((predictions_NN - dat_dum_val$acc)^2)
+mse <- mean((predictions_NN - dat_val$acc)^2)
 
 print(paste("Mean Squared Error (MSE) on validation set:", mse))
 
 # Store the model performance in dataset
-#model_performance <- rbind(model_performance, list(Model_Name = "relaxed lasso", MSE = mse))
+model_performance <- rbind(model_performance, list(Model_Name = "relaxed lasso", MSE = mse))
+
 
 ```
 
