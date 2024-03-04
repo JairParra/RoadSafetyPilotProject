@@ -1220,7 +1220,7 @@ train_matrix <- as.matrix(dat_dum_train[, !(names(dat_dum_train) %in% c("acc", "
 val_matrix <- as.matrix(dat_dum_val[, !(names(dat_dum_val) %in% c("acc", "int_no"))])
 
 # Define parameters for the XGBoost model
-xgb_params <- list(max_depth = 6,
+xgb_params <- list(max_depth = 4,
                    eta = 0.01,
                    gamma = 5,
                    colsample_bytree = 1,
@@ -1231,7 +1231,7 @@ xgb_params <- list(max_depth = 6,
 xgb_model_tuned <- xgboost(data = train_matrix, 
                            label = dat_dum_train$acc,
                            params = xgb_params,
-                           nrounds = 300,  # Specify nrounds directly
+                           nrounds = 350,  # Specify nrounds directly
                            nthread = 1,    # Use only one core
                            verbose = 0)    # Suppress XGBoost warnings
 
@@ -1315,10 +1315,10 @@ print(paste("Mean Squared Error (MSE) on validation set:", mse_poi_l1_refit))
 
 # Store the model performance in dataset
 model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L1 + Refit", MSE = mse_poi_l1_refit))
-
-
 ```
+
 ## GLM poisson L2 on top of L1 selection
+
 
 ```{r}
 alpha <- 0
@@ -1418,7 +1418,7 @@ In sample performance of the best model
 
 ```{r}
 # Show the performance of the best model on the training set
-print(mean((predict(xgb_model_tuned, newdata = val_matrix) - dat_dum_val$acc)^2))
+print(mean((predict(xgb_model_tuned, newdata = train_matrix) - dat_dum_train$acc)^2))
 ```
 
 We see the effect of selection bias as well as the fact that our model is not overfitting the training dataset, since the validation error is lower than the training error. 
