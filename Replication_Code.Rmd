@@ -1223,6 +1223,7 @@ val_matrix <- as.matrix(dat_dum_val[, !(names(dat_dum_val) %in% c("acc", "int_no
 xgb_params <- list(max_depth = 4,
                    eta = 0.01,
                    gamma = 5,
+                   lambda = 0.1, 
                    colsample_bytree = 1,
                    min_child_weight = 5,
                    subsample = 0.5)
@@ -1347,6 +1348,7 @@ model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L1+
 
 
 # Relaxed lasso
+
 ```{r}
 alpha <- 1
 cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha, relax= TRUE)
@@ -1477,6 +1479,15 @@ print(spearman_rank_cor)
 This suggests a strong positive monotonic relationship between accidents and predicted accidents. Thus, ranking by accident or dangerousness would be similar.
 
 This is what we expect.
+
+```{r}
+ggplot(final_df, aes(x = acc, y = predicted_acc)) +
+  geom_point() +
+  labs(x = "Number of Accidents", y = "Predicted Number of Accidents") +
+  ggtitle("Scatter Plot of Number of Accidents vs Predicted Number of Accidents")
+
+```
+
 
 ## Create the json file with the rankings 
 
