@@ -1288,7 +1288,7 @@ model_performance <- rbind(model_performance, list(Model_Name = "GLM Poisson L1"
 ```
 
 
-GLM Poisson Refit
+## GLM Poisson Refit
 ```{r}
 
 # Extract the coefficients from the glmnet object
@@ -1366,7 +1366,6 @@ print(paste("Mean Squared Error (MSE) on validation set:", mse))
 # Store the model performance in dataset
 model_performance <- rbind(model_performance, list(Model_Name = "relaxed lasso", MSE = mse))
 
-
 ```
 
 
@@ -1419,7 +1418,7 @@ In sample performance of the best model
 
 ```{r}
 # Show the performance of the best model on the training set
-print(mean((predict(refit_lasso_lm_model, newdata = dat_dum_train) - dat_train$acc)^2))
+print(mean((predict(xgb_model_tuned, newdata = val_matrix) - dat_dum_val$acc)^2))
 ```
 
 We see the effect of selection bias as well as the fact that our model is not overfitting the training dataset, since the validation error is lower than the training error. 
@@ -1430,16 +1429,24 @@ We see the effect of selection bias as well as the fact that our model is not ov
 To perform the ranking, we use the best model based on MSE. 
 
 ```{r}
-# Refit the linear model on the full data using only the selected variables
-refit_lasso_lm_full_model <- lm(as.formula(selected_vars_formula), data = dat_dum)
+# Define the matrix with the full data without acc or int_no
+full_matrix <- as.matrix(dat_dum[, !(names(dat_dum) %in% c("acc", "int_no"))])
 
-# Predictions on the full dataset
-predictions_full_lm <- predict(refit_lasso_lm_full_model, newdata = dat_dum)
+# Train XGBoost model with tuned parameters
+refit_xgb_model_tuned <- xgboost(data = full_matrix, 
+                           label = dat_dum$acc,
+                           params = xgb_params,
+                           nrounds = 300,  # Specify nrounds directly
+                           nthread = 1,    # Use only one core
+                           verbose = 0)    # Suppress XGBoost warnings
+
+# Make predictions on the full dataset
+preds_xgb_tuned_full <- predict(refit_xgb_model_tuned, newdata = full_matrix)
 
 # Create a dataframe with predictions, 'int_no', and original 'acc'
 predictions_df <- data.frame(int_no = dat_dum$int_no,
                              acc = dat_dum$acc,
-                             predicted_acc = predictions_full_lm)
+                             predicted_acc = preds_xgb_tuned_full)
 
 # Perform the join with inter_names on int_no
 final_df <- merge(predictions_df, inter_names, by = "int_no")
