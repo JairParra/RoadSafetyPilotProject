@@ -1111,6 +1111,7 @@ model_performance
 ## Tuned RF
 
 - Hyper tuned RF with basic features
+<!-- This is a commented out Rmd cell 
 
 ```{r}
 # Define train control
@@ -1144,7 +1145,7 @@ model_performance <- rbind(model_performance, list(Model_Name = "Tuned RF", MSE 
 ```{r}
 model_performance
 ```
-
+-->
 
 ## Spearman Based Variables 
 
@@ -1349,6 +1350,7 @@ model_performance <- rbind(model_performance, list(Model_Name = "GLM_Poisson_L1+
 
 # Relaxed lasso
 
+<!-- This is a commented out Rmd cell 
 ```{r}
 alpha <- 1
 cvfit <- cv.glmnet(x = dat_train_X_matrix, y = dat_train$acc, family = "poisson", alpha = alpha, relax= TRUE)
@@ -1369,7 +1371,7 @@ print(paste("Mean Squared Error (MSE) on validation set:", mse))
 model_performance <- rbind(model_performance, list(Model_Name = "relaxed lasso", MSE = mse))
 
 ```
-
+-->
 
 
 
