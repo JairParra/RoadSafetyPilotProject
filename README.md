@@ -1,6 +1,8 @@
 # RoadSafetyPilotProject
 Ranking intersections in the City of Montreal as part of a road safety pilot project. 
 
+![](img/Workflow.png)
+
 ## Description 
 
 You are a consultant hired by the City of Montreal as part of a road safety pilot project.
@@ -36,11 +38,6 @@ are correctly executed.
 2. Make sure to have `RTools` installed. For Windows, use https://cran.r-project.org/bin/windows/Rtools/
 3. Make sure to have installed `XGBoost` correctly as per they [documentation](https://xgboost.readthedocs.io/en/stable/install.html). 
 4. Open the `ReplicationCode.Rmd` markdown and execute the script. The function `f_load_packages()` will take care of installation and loading of of all required CRAN packages.
-
-
-## Project Architecture Workflow
-
-![](img/Workflow.png)
 
 ## Data Visualization
 
